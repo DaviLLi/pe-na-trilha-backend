@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<coverage generated="1781727929360" clover="3.2.0">
-  <project timestamp="1781727929361" name="All files">
+<coverage generated="1781728662598" clover="3.2.0">
+  <project timestamp="1781728662598" name="All files">
     <metrics statements="20" coveredstatements="16" conditionals="10" coveredconditionals="8" methods="4" coveredmethods="3" elements="34" coveredelements="27" complexity="0" loc="20" ncloc="20" packages="1" files="2" classes="2"/>
     <file name="errorHandler.js" path="/home/rei-davi/Área de trabalho/Projetos/Saulo/pe-na-trilha-backend/src/middlewares/errorHandler.js">
       <metrics statements="11" coveredstatements="7" conditionals="6" coveredconditionals="4" methods="3" coveredmethods="2"/>
