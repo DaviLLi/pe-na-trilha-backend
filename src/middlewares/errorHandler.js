@@ -4,7 +4,7 @@ export function rotaNaoEncontrada(req, res) {
   });
 }
 
-export function tratarErros(erro, _req, res, _next) {
+export function tratarErros(erro, _req, res) {
   if (erro.type === "entity.parse.failed") {
     return res.status(400).json({ mensagem: "O JSON enviado é inválido." });
   }
