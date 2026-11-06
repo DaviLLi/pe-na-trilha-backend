@@ -4,7 +4,31 @@ export function rotaNaoEncontrada(req, res) {
   });
 }
 
-export function tratarErros(erro, _req, res) {
+function requisicaoDeUsuario(req) {
+  return /^\/usuarios(?:\/|\?|$)/.test(req.originalUrl || "");
+}
+
+export function tratarErros(erro, req, res) {
+  if (erro.code === 11000) {
+    const camposDuplicados = Object.keys(erro.keyPattern || erro.keyValue || {});
+
+    if (camposDuplicados.includes("email")) {
+      return res.status(409).json({
+        mensagem: "Este e-mail já está cadastrado.",
+      });
+    }
+
+    if (camposDuplicados.includes("nomeUsuario")) {
+      return res.status(409).json({
+        mensagem: "Este nome de usuário já está em uso.",
+      });
+    }
+
+    return res.status(409).json({
+      mensagem: "Nome de usuário ou e-mail já cadastrado.",
+    });
+  }
+
   if (erro.type === "entity.parse.failed") {
     return res.status(400).json({ mensagem: "O JSON enviado é inválido." });
   }
@@ -15,13 +39,18 @@ export function tratarErros(erro, _req, res) {
     );
 
     return res.status(400).json({
-      mensagem: "Dados da trilha inválidos.",
+      mensagem: requisicaoDeUsuario(req)
+        ? "Dados do usuário inválidos."
+        : "Dados da trilha inválidos.",
       erros: mensagens,
     });
   }
 
   if (erro.name === "CastError") {
-    return res.status(400).json({ mensagem: "ID de trilha inválido." });
+    const recurso = requisicaoDeUsuario(req)
+      ? "usuário"
+      : "trilha";
+    return res.status(400).json({ mensagem: `ID de ${recurso} inválido.` });
   }
 
   console.error(erro);
