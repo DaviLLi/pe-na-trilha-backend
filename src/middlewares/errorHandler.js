@@ -8,7 +8,9 @@ function requisicaoDeUsuario(req) {
   return /^\/usuarios(?:\/|\?|$)/.test(req.originalUrl || "");
 }
 
-export function tratarErros(erro, req, res) {
+export function tratarErros(erro, req, res, next) {
+  void next;
+
   if (erro.code === 11000) {
     const camposDuplicados = Object.keys(erro.keyPattern || erro.keyValue || {});
 

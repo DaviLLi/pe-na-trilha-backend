@@ -1,4 +1,6 @@
 import { jest } from "@jest/globals";
+import request from "supertest";
+import app from "../src/app.js";
 import {
   rotaNaoEncontrada,
   tratarErros,
@@ -32,6 +34,16 @@ describe("rotaNaoEncontrada", () => {
 });
 
 describe("tratarErros", () => {
+  test("trata CastError HTTP da rota de trilhas pelo errorHandler global", async () => {
+    const resposta = await request(app).get("/trilhas/id-invalido");
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.headers["content-type"]).toMatch(/application\/json/);
+    expect(resposta.body).toEqual({
+      mensagem: "ID de trilha inválido.",
+    });
+  });
+
   test("deve retornar erro 400 para JSON inválido", () => {
     const erro = {
       type: "entity.parse.failed",
