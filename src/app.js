@@ -1,6 +1,7 @@
 import cors from "cors";
 import express from "express";
 import trilhaRoutes from "./routes/trilhaRoutes.js";
+import usuarioRoutes from "./routes/usuarioRoutes.js";
 import {
   rotaNaoEncontrada,
   tratarErros,
@@ -16,6 +17,7 @@ app.use(
 app.use(express.json());
 
 app.use("/trilhas", trilhaRoutes);
+app.use("/usuarios", usuarioRoutes);
 
 app.use(rotaNaoEncontrada);
 app.use(tratarErros);
