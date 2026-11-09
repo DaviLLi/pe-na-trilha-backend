@@ -1,10 +1,29 @@
 import { jest } from "@jest/globals";
+import bcrypt from "bcrypt";
+import { randomBytes } from "node:crypto";
+import { jwtVerify } from "jose";
 import request from "supertest";
 import app from "../src/app.js";
+import { obterChaveJwt } from "../src/config/jwt.js";
 import Usuario from "../src/models/Usuario.js";
+
+const segredoAnterior = process.env.JWT_SECRET;
+const segredoTeste = randomBytes(32).toString("base64");
+
+beforeAll(() => {
+  process.env.JWT_SECRET = segredoTeste;
+});
 
 afterEach(() => {
   jest.restoreAllMocks();
+});
+
+afterAll(() => {
+  if (segredoAnterior === undefined) {
+    delete process.env.JWT_SECRET;
+  } else {
+    process.env.JWT_SECRET = segredoAnterior;
+  }
 });
 
 describe("POST /usuarios", () => {
@@ -100,6 +119,107 @@ describe("POST /usuarios", () => {
         email: "ana@exemplo.com",
         senha: "Trilha123!",
       });
+
+    expect(resposta.status).toBe(500);
+    expect(resposta.body).toEqual({ mensagem: "Erro interno do servidor." });
+    expect(logErro).toHaveBeenCalledWith(erro);
+  });
+
+  test.each([
+    [" ANA@EXEMPLO.COM ", "email", "ana@exemplo.com"],
+    [" ÁNA ", "nomeUsuario", "ána"],
+  ])(
+    "autentica por identificador normalizado (%s) sem expor dados sensíveis",
+    async (identificador, campo, valorNormalizado) => {
+      const id = "507f1f77bcf86cd799439011";
+      const hash = await bcrypt.hash("Trilha123!", 4);
+      const usuario = {
+        _id: id,
+        nomeCompleto: "Ana da Silva",
+        nomeUsuario: "ána",
+        email: "ana@exemplo.com",
+        perfil: "user",
+        senha: hash,
+      };
+      const query = { select: jest.fn().mockResolvedValue(usuario) };
+      const buscarUsuario = jest
+        .spyOn(Usuario, "findOne")
+        .mockReturnValue(query);
+
+      const resposta = await request(app)
+        .post("/usuarios/login")
+        .send({ identificador, senha: "Trilha123!", perfil: "admin" });
+
+      expect(resposta.status).toBe(200);
+      expect(buscarUsuario).toHaveBeenCalledWith({ [campo]: valorNormalizado });
+      expect(query.select).toHaveBeenCalledWith("+senha");
+      expect(resposta.body.usuario).toEqual({
+        _id: id,
+        nomeCompleto: "Ana da Silva",
+        nomeUsuario: "ána",
+        email: "ana@exemplo.com",
+        perfil: "user",
+      });
+      expect(resposta.body).not.toHaveProperty("senha");
+      expect(JSON.stringify(resposta.body)).not.toContain(hash);
+      expect(JSON.stringify(resposta.body)).not.toContain("Trilha123!");
+
+      const { payload, protectedHeader } = await jwtVerify(
+        resposta.body.token,
+        obterChaveJwt(),
+        { algorithms: ["HS256"] },
+      );
+      expect(protectedHeader.alg).toBe("HS256");
+      expect(payload).toMatchObject({ sub: id });
+      expect(Object.keys(payload).sort()).toEqual(["exp", "iat", "sub"]);
+      expect(payload.exp - payload.iat).toBe(15 * 60);
+    },
+  );
+
+  test.each([
+    ["usuário inexistente", null],
+    ["senha incorreta", "OutraSenha123!"],
+  ])("retorna a mesma resposta genérica para %s", async (_caso, senhaDaConta) => {
+    const hash = senhaDaConta
+      ? await bcrypt.hash(senhaDaConta, 4)
+      : undefined;
+    const usuario = senhaDaConta
+      ? { senha: hash }
+      : null;
+    jest.spyOn(Usuario, "findOne").mockReturnValue({
+      select: jest.fn().mockResolvedValue(usuario),
+    });
+
+    const resposta = await request(app).post("/usuarios/login").send({
+      identificador: "ana@exemplo.com",
+      senha: "Trilha123!",
+    });
+
+    expect(resposta.status).toBe(401);
+    expect(resposta.body).toEqual({ mensagem: "Credenciais inválidas." });
+  });
+
+  test("valida entrada do login antes de consultar o model", async () => {
+    const buscarUsuario = jest.spyOn(Usuario, "findOne");
+
+    const resposta = await request(app)
+      .post("/usuarios/login")
+      .send({ identificador: "ana@exemplo.com" });
+
+    expect(resposta.status).toBe(400);
+    expect(buscarUsuario).not.toHaveBeenCalled();
+  });
+
+  test("encaminha falhas inesperadas da consulta de login ao errorHandler", async () => {
+    const erro = new Error("Falha de consulta");
+    const query = { select: jest.fn().mockRejectedValue(erro) };
+    jest.spyOn(Usuario, "findOne").mockReturnValue(query);
+    const logErro = jest.spyOn(console, "error").mockImplementation(() => {});
+
+    const resposta = await request(app).post("/usuarios/login").send({
+      identificador: "ana@exemplo.com",
+      senha: "Trilha123!",
+    });
 
     expect(resposta.status).toBe(500);
     expect(resposta.body).toEqual({ mensagem: "Erro interno do servidor." });
