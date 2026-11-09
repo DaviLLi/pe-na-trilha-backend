@@ -25,7 +25,13 @@ export async function buscarTrilha(req, res, next) {
 
 export async function criarTrilha(req, res, next) {
   try {
-    const trilha = await Trilha.create(req.body);
+    const { titulo, descricao, endereco } = req.body;
+    const trilha = await Trilha.create({
+      titulo,
+      descricao,
+      endereco,
+      proprietario: req.usuario._id,
+    });
     res.status(201).json(trilha);
   } catch (erro) {
     next(erro);
@@ -34,10 +40,11 @@ export async function criarTrilha(req, res, next) {
 
 export async function atualizarTrilha(req, res, next) {
   try {
-    const trilha = await Trilha.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
-    });
+    const trilha = await Trilha.findOneAndUpdate(
+      { _id: req.params.id, proprietario: req.usuario._id },
+      req.body,
+      { new: true, runValidators: true },
+    );
 
     if (!trilha) {
       return res.status(404).json({ mensagem: "Trilha não encontrada." });
@@ -51,7 +58,10 @@ export async function atualizarTrilha(req, res, next) {
 
 export async function excluirTrilha(req, res, next) {
   try {
-    const trilha = await Trilha.findByIdAndDelete(req.params.id);
+    const trilha = await Trilha.findOneAndDelete({
+      _id: req.params.id,
+      proprietario: req.usuario._id,
+    });
 
     if (!trilha) {
       return res.status(404).json({ mensagem: "Trilha não encontrada." });

@@ -17,6 +17,11 @@ const trilhaSchema = new mongoose.Schema(
       required: [true, "O endereço é obrigatório."],
       trim: true,
     },
+    proprietario: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Usuario",
+      required: true,
+    },
   },
   {
     timestamps: true,
