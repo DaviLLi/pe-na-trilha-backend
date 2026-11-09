@@ -112,6 +112,12 @@ const usuarioSchema = new mongoose.Schema(
       default: null,
       trim: true,
     },
+    fotoPerfilPublicId: {
+      type: String,
+      default: null,
+      select: false,
+      trim: true,
+    },
     perfil: {
       type: String,
       enum: ["user", "admin"],
@@ -124,12 +130,14 @@ const usuarioSchema = new mongoose.Schema(
     toJSON: {
       transform(_doc, ret) {
         delete ret.senha;
+        delete ret.fotoPerfilPublicId;
         return ret;
       },
     },
     toObject: {
       transform(_doc, ret) {
         delete ret.senha;
+        delete ret.fotoPerfilPublicId;
         return ret;
       },
     },
