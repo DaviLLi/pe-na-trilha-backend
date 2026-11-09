@@ -11,6 +11,19 @@ function requisicaoDeUsuario(req) {
 export function tratarErros(erro, req, res, next) {
   void next;
 
+  if (erro.name === "MulterError" || erro.code === "LIMIT_FILE_SIZE") {
+    const status = erro.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+    const mensagem =
+      erro.code === "LIMIT_FILE_SIZE"
+        ? "A imagem excede o limite de 5 MiB."
+        : "O envio da imagem contém campos, arquivos ou partes não permitidos.";
+    return res.status(status).json({ mensagem });
+  }
+
+  if (erro.type === "multipart.parse") {
+    return res.status(400).json({ mensagem: "A requisição multipart é inválida." });
+  }
+
   if (erro.code === 11000) {
     const camposDuplicados = Object.keys(erro.keyPattern || erro.keyValue || {});
 

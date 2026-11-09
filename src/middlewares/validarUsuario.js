@@ -21,6 +21,12 @@ export function validarUsuario(req, res, next) {
   const senha = entrada?.senha;
   const fotoPerfil = entrada?.fotoPerfil;
 
+  if (fotoPerfil !== undefined && fotoPerfil !== null && fotoPerfil !== "") {
+    return res.status(400).json({
+      mensagem: "A foto de perfil deve ser enviada pelo endpoint autenticado.",
+    });
+  }
+
   if (typeof nomeCompleto !== "string" || !nomeCompleto.trim()) {
     return res.status(400).json({
       mensagem: "O nome completo é obrigatório.",
@@ -67,24 +73,12 @@ export function validarUsuario(req, res, next) {
     });
   }
 
-  let fotoPerfilNormalizada = null;
-
-  if (fotoPerfil !== undefined && fotoPerfil !== null) {
-    if (typeof fotoPerfil !== "string") {
-      return res.status(400).json({
-        mensagem: "A foto de perfil deve ser um texto ou nula.",
-      });
-    }
-
-    fotoPerfilNormalizada = fotoPerfil.trim() || null;
-  }
-
   req.body = {
     nomeCompleto: nomeCompleto.trim(),
     nomeUsuario: nomeUsuarioNormalizado,
     email: emailNormalizado,
     senha,
-    fotoPerfil: fotoPerfilNormalizada,
+    fotoPerfil: null,
     perfil: "user",
   };
 

@@ -9,6 +9,9 @@ API REST para cadastrar usuários, autenticar e gerenciar trilhas. O projeto ofe
 - MongoDB e Mongoose
 - bcrypt para hash de senhas
 - jose para JWT
+- Cloudinary para armazenamento de imagens
+- Multer para recebimento multipart
+- file-type para validação do formato pela assinatura
 - CORS e dotenv
 - Jest para testes
 - ESLint para análise de código
@@ -17,9 +20,11 @@ API REST para cadastrar usuários, autenticar e gerenciar trilhas. O projeto ofe
 
 Antes de começar, tenha instalado:
 
-- [Node.js](https://nodejs.org/) 20 ou superior
+- [Node.js](https://nodejs.org/) 22 ou superior
 - npm
 - Uma instância do [MongoDB](https://www.mongodb.com/), local ou no MongoDB Atlas
+
+Para upload e remoção de fotos, o MongoDB local deve operar como replica set, pois esses fluxos usam transações. O Atlas fornece suporte a transações.
 
 ## Instalação
 
@@ -49,6 +54,9 @@ Antes de começar, tenha instalado:
    MONGO_URI=mongodb+srv://usuario:senha@cluster.mongodb.net/penatrilha
    FRONTEND_URL=http://localhost:5173
    JWT_SECRET=
+   CLOUDINARY_CLOUD_NAME=
+   CLOUDINARY_API_KEY=
+   CLOUDINARY_API_SECRET=
    ```
 
    Gere um segredo aleatório com pelo menos 256 bits (por exemplo, `openssl rand -base64 32`) e configure-o somente no `.env` local ou no gerenciador de segredos do ambiente. Não coloque o valor real no repositório.
@@ -59,6 +67,11 @@ Antes de começar, tenha instalado:
    | `PORT` | Não | Porta utilizada pela API | `3000` |
    | `FRONTEND_URL` | Não | Origem autorizada pelo CORS | `http://localhost:5173` |
    | `JWT_SECRET` | Sim | Segredo aleatório de pelo menos 256 bits para assinar tokens | — |
+   | `CLOUDINARY_CLOUD_NAME` | Não | Nome da conta Cloudinary para upload de foto de perfil | — |
+   | `CLOUDINARY_API_KEY` | Não | Chave de API Cloudinary, mantida somente no backend | — |
+   | `CLOUDINARY_API_SECRET` | Não | Segredo de API Cloudinary, mantido somente no backend | — |
+
+As credenciais Cloudinary são opcionais para iniciar a API. Sem elas, cadastro, login e trilhas continuam disponíveis, enquanto os endpoints de foto respondem `503`. Nunca configure credenciais Cloudinary no frontend.
 
 > Não publique o arquivo `.env`: ele pode conter credenciais e já está incluído no `.gitignore`.
 
@@ -96,6 +109,12 @@ A URL base dos recursos é `/trilhas`.
 | --- | --- | --- | --- |
 | `POST` | `/usuarios` | Cadastra um usuário | `201` |
 | `POST` | `/usuarios/login` | Autentica por username ou e-mail e retorna JWT | `200` |
+| `PUT` | `/usuarios/me/foto-perfil` | Envia ou substitui a foto de perfil autenticado (multipart, campo `imagem`) | `200` |
+| `DELETE` | `/usuarios/me/foto-perfil` | Remove a foto de perfil autenticado | `200` |
+
+Fotos de perfil aceitam JPEG, PNG ou WebP, com limite de 5 MiB por arquivo. O formato é conferido pela assinatura do arquivo; o cadastro público não aceita foto. O armazenamento multipart usa memória, portanto uploads simultâneos podem exigir limites adicionais de concorrência ou taxa no gateway. A substituição e remoção registram a limpeza remota em operações persistidas, com tentativas automáticas e recuperação por lease. Operações que esgotam tentativas permanecem registradas para reenvio operacional. Fotos de trilhas ficam fora desta etapa.
+
+Fotos legadas que contenham somente uma URL, sem `fotoPerfilPublicId`, não podem ser excluídas automaticamente do Cloudinary. A remoção limpa a referência no perfil, mas a limpeza remota dessas imagens exige reconciliação operacional.
 
 O login recebe `identificador` e `senha`. Para acessar rotas protegidas, envie o JWT no cabeçalho `Authorization: Bearer <token>`. O token expira em 15 minutos. A API não armazena tokens; o cliente não deve persistir o token em `localStorage`.
 

@@ -117,13 +117,20 @@ describe("validarUsuario", () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  test("mantém foto de perfil nula quando não enviada e aceita texto opcional", () => {
+  test("mantém foto de perfil nula quando não enviada", () => {
     const reqSemFoto = criarRequisicao();
     validarUsuario(reqSemFoto, {}, jest.fn());
     expect(reqSemFoto.body.fotoPerfil).toBeNull();
+  });
 
-    const reqComFoto = criarRequisicao({ fotoPerfil: " https://exemplo.com/foto.jpg " });
-    validarUsuario(reqComFoto, {}, jest.fn());
-    expect(reqComFoto.body.fotoPerfil).toBe("https://exemplo.com/foto.jpg");
+  test("rejeita foto enviada no cadastro público", () => {
+    const req = criarRequisicao({ fotoPerfil: "https://exemplo.com/foto.jpg" });
+    const res = criarRespostaMock();
+    const next = jest.fn();
+
+    validarUsuario(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(next).not.toHaveBeenCalled();
   });
 });
