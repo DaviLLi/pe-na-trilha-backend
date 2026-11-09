@@ -51,9 +51,8 @@ describe("registro explícito de assets da execução", () => {
     expect(markerFindOne).toHaveBeenCalledWith({ _id: runId, environment: "integration" });
     expect(operationFindOne).toHaveBeenCalledWith({
       publicId: publicIdRegistrado,
-      estado: "completed",
+      estado: { $in: ["completed", "cleanup_pending"] },
       createdAt: { $gte: createdAt },
-      concluidoEm: { $type: "date" },
     });
     expect(updateOne).toHaveBeenCalledWith(
       { runId, publicId: publicIdRegistrado },
@@ -86,6 +85,28 @@ describe("registro explícito de assets da execução", () => {
     expect(collection).toHaveBeenCalledTimes(1);
   });
 
+  test("rejeita marcador de outro ambiente antes de consultar operações", async () => {
+    const markerFindOne = jest.fn().mockResolvedValue({
+      _id: runId,
+      environment: "production",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    const operationFindOne = jest.fn();
+    const updateOne = jest.fn();
+    const db = {
+      collection: jest.fn((name) => {
+        if (name === "__integration_run") return { findOne: markerFindOne };
+        if (name === "operacaoimagems") return { findOne: operationFindOne };
+        return { updateOne };
+      }),
+    };
+
+    await expect(registrarAssetDaExecucao(db, runId, publicIdRegistrado))
+      .rejects.toThrow("O marcador da execução de integração não foi encontrado.");
+    expect(operationFindOne).not.toHaveBeenCalled();
+    expect(updateOne).not.toHaveBeenCalled();
+  });
+
   test("rejeita publicId antigo sem operação de upload concluída nesta execução", async () => {
     const markerFindOne = jest.fn().mockResolvedValue({
       _id: runId,
@@ -103,7 +124,68 @@ describe("registro explícito de assets da execução", () => {
     };
 
     await expect(registrarAssetDaExecucao(db, runId, publicIdRegistrado))
-      .rejects.toThrow("O asset não foi criado por um upload concluído nesta execução.");
+      .rejects.toThrow("O asset não possui operação elegível criada nesta execução.");
+    expect(updateOne).not.toHaveBeenCalled();
+  });
+
+  test("registra cleanup_pending somente quando a operação nasceu após o marcador ativo", async () => {
+    const createdAt = new Date("2026-01-01T00:00:00.000Z");
+    const markerFindOne = jest.fn().mockResolvedValue({
+      _id: runId,
+      environment: "integration",
+      createdAt,
+    });
+    const operationFindOne = jest.fn().mockResolvedValue({
+      publicId: publicIdRegistrado,
+      estado: "cleanup_pending",
+      createdAt: new Date(createdAt.getTime() + 10),
+    });
+    const updateOne = jest.fn().mockResolvedValue({ upsertedCount: 1 });
+    const db = {
+      collection: jest.fn((name) => {
+        if (name === "__integration_run") return { findOne: markerFindOne };
+        if (name === "operacaoimagems") return { findOne: operationFindOne };
+        return { updateOne };
+      }),
+    };
+
+    await registrarAssetDaExecucao(db, runId, publicIdRegistrado);
+
+    expect(operationFindOne).toHaveBeenCalledWith({
+      publicId: publicIdRegistrado,
+      estado: { $in: ["completed", "cleanup_pending"] },
+      createdAt: { $gte: createdAt },
+    });
+    expect(updateOne).toHaveBeenCalledWith(
+      { runId, publicId: publicIdRegistrado },
+      expect.objectContaining({ $setOnInsert: expect.objectContaining({ estado: "pending" }) }),
+      { upsert: true },
+    );
+  });
+
+  test("rejeita cleanup_pending cuja operação foi criada antes do marcador", async () => {
+    const createdAt = new Date("2026-01-02T00:00:00.000Z");
+    const markerFindOne = jest.fn().mockResolvedValue({
+      _id: runId,
+      environment: "integration",
+      createdAt,
+    });
+    const operationFindOne = jest.fn().mockResolvedValue({
+      publicId: publicIdRegistrado,
+      estado: "cleanup_pending",
+      createdAt: new Date(createdAt.getTime() - 1),
+    });
+    const updateOne = jest.fn();
+    const db = {
+      collection: jest.fn((name) => {
+        if (name === "__integration_run") return { findOne: markerFindOne };
+        if (name === "operacaoimagems") return { findOne: operationFindOne };
+        return { updateOne };
+      }),
+    };
+
+    await expect(registrarAssetDaExecucao(db, runId, publicIdRegistrado))
+      .rejects.toThrow("O asset não possui operação elegível criada nesta execução.");
     expect(updateOne).not.toHaveBeenCalled();
   });
 
@@ -125,6 +207,31 @@ describe("registro explícito de assets da execução", () => {
     expect(excluirImagem).toHaveBeenCalledTimes(1);
     expect(excluirImagem).toHaveBeenCalledWith(publicIdRegistrado);
     expect(excluirImagem).not.toHaveBeenCalledWith(publicIdNaoRegistrado);
+  });
+
+  test("rejeita limpeza com runId divergente antes de consultar ou excluir assets", async () => {
+    const collection = jest.fn();
+    const excluirImagem = jest.fn();
+    const db = { collection };
+
+    await expect(limparAssetsRegistrados(db, outroRunId, excluirImagem))
+      .rejects.toThrow("O identificador do asset não corresponde à execução de integração ativa.");
+
+    expect(collection).not.toHaveBeenCalled();
+    expect(excluirImagem).not.toHaveBeenCalled();
+  });
+
+  test("rejeita limpeza quando TEST_RUN_ID está ausente antes de consultar ou excluir assets", async () => {
+    delete process.env.TEST_RUN_ID;
+    const collection = jest.fn();
+    const excluirImagem = jest.fn();
+    const db = { collection };
+
+    await expect(limparAssetsRegistrados(db, runId, excluirImagem))
+      .rejects.toThrow("O identificador do asset não corresponde à execução de integração ativa.");
+
+    expect(collection).not.toHaveBeenCalled();
+    expect(excluirImagem).not.toHaveBeenCalled();
   });
 
   test("mantém o registro quando a exclusão falha para permitir nova tentativa", async () => {
