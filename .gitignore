@@ -1,5 +1,6 @@
 node_modules
 .env
+.env.integration
 npm-debug.log*
 coverage
 skills-lock.json
