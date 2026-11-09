@@ -34,4 +34,33 @@ describe("model Trilha", () => {
 
     await expect(trilha.validate()).resolves.toBeUndefined();
   });
+
+  test("inicializa fotos vazias e não serializa public IDs", () => {
+    const trilha = new Trilha({
+      titulo: "Trilha da Lagoa",
+      descricao: "Muito bonita",
+      endereco: "Florianópolis",
+      proprietario: new mongoose.Types.ObjectId(),
+      fotos: [{
+        url: "https://res.cloudinary.com/demo/foto.jpg",
+        publicId: "pe-na-trilha/trilhas/interno",
+      }],
+    });
+
+    expect(trilha.toJSON().fotos).toHaveLength(1);
+    expect(trilha.toJSON().fotos[0]).not.toHaveProperty("publicId");
+    expect(new Trilha().fotos).toEqual([]);
+  });
+
+  test("serializa trilha legada sem fotos como lista vazia", () => {
+    const legada = Trilha.hydrate({
+      _id: new mongoose.Types.ObjectId(),
+      titulo: "Trilha antiga",
+      descricao: "Descrição",
+      endereco: "Endereço",
+      proprietario: new mongoose.Types.ObjectId(),
+    });
+
+    expect(legada.toJSON().fotos).toEqual([]);
+  });
 });

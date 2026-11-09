@@ -61,3 +61,6 @@ export async function validarFotoPerfil(req, res, next) {
     return next(erro);
   }
 }
+
+export const receberImagem = receberFotoPerfil;
+export const validarImagem = validarFotoPerfil;
