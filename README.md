@@ -1,12 +1,14 @@
 # Pé na Trilha — Backend
 
-API REST para cadastrar e gerenciar trilhas. O projeto oferece operações de criação, consulta, atualização e exclusão, com validação dos dados, persistência no MongoDB e tratamento centralizado de erros.
+API REST para cadastrar usuários, autenticar e gerenciar trilhas. O projeto oferece operações de cadastro e login de usuários e criação, consulta, atualização e exclusão de trilhas, com validação, persistência no MongoDB e tratamento centralizado de erros.
 
 ## Tecnologias
 
 - Node.js e ES Modules
 - Express 5
 - MongoDB e Mongoose
+- bcrypt para hash de senhas
+- jose para JWT
 - CORS e dotenv
 - Jest para testes
 - ESLint para análise de código
@@ -46,13 +48,17 @@ Antes de começar, tenha instalado:
    PORT=3000
    MONGO_URI=mongodb+srv://usuario:senha@cluster.mongodb.net/penatrilha
    FRONTEND_URL=http://localhost:5173
+   JWT_SECRET=
    ```
+
+   Gere um segredo aleatório com pelo menos 256 bits (por exemplo, `openssl rand -base64 32`) e configure-o somente no `.env` local ou no gerenciador de segredos do ambiente. Não coloque o valor real no repositório.
 
    | Variável | Obrigatória | Descrição | Padrão |
    | --- | --- | --- | --- |
    | `MONGO_URI` | Sim | URI de conexão com o MongoDB | — |
    | `PORT` | Não | Porta utilizada pela API | `3000` |
    | `FRONTEND_URL` | Não | Origem autorizada pelo CORS | `http://localhost:5173` |
+   | `JWT_SECRET` | Sim | Segredo aleatório de pelo menos 256 bits para assinar tokens | — |
 
 > Não publique o arquivo `.env`: ele pode conter credenciais e já está incluído no `.gitignore`.
 
@@ -83,6 +89,17 @@ A URL base dos recursos é `/trilhas`.
 | `POST` | `/trilhas` | Cadastra uma trilha | `201` |
 | `PUT` | `/trilhas/:id` | Atualiza todos os dados de uma trilha | `200` |
 | `DELETE` | `/trilhas/:id` | Exclui uma trilha | `204` |
+
+### Cadastro e autenticação de usuários
+
+| Método | Endpoint | Descrição | Sucesso |
+| --- | --- | --- | --- |
+| `POST` | `/usuarios` | Cadastra um usuário | `201` |
+| `POST` | `/usuarios/login` | Autentica por username ou e-mail e retorna JWT | `200` |
+
+O login recebe `identificador` e `senha`. Para acessar rotas protegidas, envie o JWT no cabeçalho `Authorization: Bearer <token>`. O token expira em 15 minutos. A API não armazena tokens; o cliente não deve persistir o token em `localStorage`.
+
+**Requisito pendente antes da publicação em produção:** aplicar limitação de tentativas no endpoint de login via gateway/proxy ou solução adequada à topologia de implantação. Esta proteção não está implementada nesta etapa.
 
 ### Formato da trilha
 
@@ -150,7 +167,7 @@ Possíveis respostas incluem:
 
 ```text
 src/
-├── config/          # Conexão com o banco de dados
+├── config/          # Configuração do banco e do JWT
 ├── controllers/     # Regras das operações da API
 ├── middlewares/     # Validação e tratamento de erros
 ├── models/          # Modelos do Mongoose
