@@ -120,6 +120,20 @@ O login recebe `identificador` e `senha`. Para acessar rotas protegidas, envie o
 
 **Requisito pendente antes da publicação em produção:** aplicar limitação de tentativas no endpoint de login via gateway/proxy ou solução adequada à topologia de implantação. Esta proteção não está implementada nesta etapa.
 
+### Testes de integração
+
+Os testes de integração são opt-in e usam `npm run test:integration`; `npm test` continua executando a suíte padrão sem depender de MongoDB ou Cloudinary.
+
+Configure um MongoDB descartável com suporte a transações e uma conta Cloudinary dedicada a testes. Para MongoDB local, configure o servidor como replica set (o exemplo usa `replicaSet=rs0`). Copie `.env.integration.example` para `.env.integration` e preencha somente credenciais desses recursos de teste. O setup carrega explicitamente esse arquivo e nunca usa `.env`, `MONGO_URI` ou credenciais Cloudinary normais como fallback.
+
+São obrigatórias `TEST_ENVIRONMENT=integration`, `TEST_MONGO_URI`, `TEST_MONGO_ALLOWED_HOSTS` com uma lista explícita de hosts, e `TEST_CLOUDINARY_CLOUD_NAME`, `TEST_CLOUDINARY_API_KEY` e `TEST_CLOUDINARY_API_SECRET`. O URI deve apontar para um banco cujo nome contenha um segmento `test`, `testing`, `integration` ou `ci`; o host precisa corresponder exatamente a um item da allowlist. Para `mongodb+srv`, inclua na allowlist o host de seed e todos os destinos SRV. O setup valida duas respostas DNS SRV consecutivas e aborta antes da conexão se os destinos ou portas mudarem. Também valida os membros `hosts`, `passives` e `arbiters` anunciados pelo replica set antes de criar o marcador. No teardown, o model `OperacaoImagem` só é importado depois dessa validação, evitando a criação automática antecipada de índices. Topologias mongos são rejeitadas porque a resposta `hello` não enumera todos os membros internos dos shards.
+
+Cada execução cria um nome de banco derivado com um identificador aleatório. O setup aborta se encontrar coleções nesse banco antes dos testes. O teardown remove documentos somente desse banco isolado e exclui assets somente após registro explícito em `__integration_assets` para o `TEST_RUN_ID` atual. Os testes de imagem devem registrar os `publicId`s obtidos após uploads feitos nessa execução; a coleção geral de operações não autoriza exclusões. O registro permanece se a chamada Cloudinary falhar, permitindo nova tentativa. Fixtures devem criar imagens pelos endpoints, sem semear `publicId`s arbitrários. Não usa `dropDatabase` nem limpa assets por prefixo. Use credenciais com acesso restrito ao cluster de teste e não compartilhe a conta Cloudinary com produção.
+
+O driver pode resolver novamente o DNS SRV e abrir conexões com membros anunciados pelo servidor durante descoberta antes que o setup consiga comparar a resposta `hello`. As duas consultas SRV reduzem a janela para uma resposta DNS instável, mas não eliminam a corrida entre a validação e a resolução interna do driver. A allowlist do código não substitui uma regra de saída de rede para impedir contatos TCP com hosts não permitidos. Configure também o firewall/egress do ambiente de teste para os hosts aprovados.
+
+O teste inicial valida conexão e topologia MongoDB, depois verifica commit e rollback reais consultando o estado persistido. A execução desse comando conecta ao MongoDB e pode fazer chamadas ao Cloudinary durante os testes; não o execute sem configurar e conferir os recursos descartáveis.
+
 ### Formato da trilha
 
 Os campos `titulo`, `descricao` e `endereco` são obrigatórios e devem ser textos não vazios.
