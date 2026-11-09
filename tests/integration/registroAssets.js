@@ -24,18 +24,30 @@ export async function registrarAssetDaExecucao(db, runId, publicId) {
     _id: runIdAtivo,
     environment: "integration",
   });
-  if (!marcador || !(marcador.createdAt instanceof Date)) {
+  if (
+    !marcador ||
+    marcador._id !== runIdAtivo ||
+    marcador.environment !== "integration" ||
+    !(marcador.createdAt instanceof Date)
+  ) {
     throw new Error("O marcador da execução de integração não foi encontrado.");
   }
 
-  const operacaoUpload = await db.collection(NOME_COLECAO_OPERACOES).findOne({
+  const operacaoImagem = await db.collection(NOME_COLECAO_OPERACOES).findOne({
     publicId,
-    estado: "completed",
+    estado: { $in: ["completed", "cleanup_pending"] },
     createdAt: { $gte: marcador.createdAt },
-    concluidoEm: { $type: "date" },
   });
-  if (!operacaoUpload) {
-    throw new Error("O asset não foi criado por um upload concluído nesta execução.");
+
+  const criadaNestaExecucao = operacaoImagem?.publicId === publicId &&
+    operacaoImagem.createdAt instanceof Date &&
+    operacaoImagem.createdAt >= marcador.createdAt;
+  const estadoElegivel = operacaoImagem?.estado === "cleanup_pending" || (
+    operacaoImagem?.estado === "completed" && operacaoImagem.concluidoEm instanceof Date
+  );
+
+  if (!criadaNestaExecucao || !estadoElegivel) {
+    throw new Error("O asset não possui operação elegível criada nesta execução.");
   }
 
   await db.collection("__integration_assets").updateOne(
@@ -78,6 +90,11 @@ export function validarRegistrosAssets(registros, runId) {
 }
 
 export async function limparAssetsRegistrados(db, runId, excluirImagem) {
+  const runIdAtivo = process.env.TEST_RUN_ID || "";
+  if (!ID_EXECUCAO_VALIDO.test(runId || "") || runId !== runIdAtivo) {
+    throw new Error("O identificador do asset não corresponde à execução de integração ativa.");
+  }
+
   const colecao = db.collection("__integration_assets");
   const registros = await colecao.find({ runId }).toArray();
   validarRegistrosAssets(registros, runId);

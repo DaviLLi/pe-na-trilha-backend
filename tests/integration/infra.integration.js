@@ -3,7 +3,7 @@ import {
   carregarAmbienteIntegracao,
   validarBancoDaExecucao,
 } from "./ambiente.js";
-import { verificarTopologiaMongo } from "./topologia.js";
+import { conectarComGateDeInfra } from "./infraGate.js";
 
 const config = carregarAmbienteIntegracao();
 const bancoExecucao = validarBancoDaExecucao(process.env, config);
@@ -11,31 +11,46 @@ const idExecucao = process.env.TEST_RUN_ID;
 
 describe("infraestrutura MongoDB de integração", () => {
   let db;
+  let topologia;
+  let marcador;
+  let conectado = false;
 
   beforeAll(async () => {
-    await mongoose.connect(config.uri, { dbName: bancoExecucao });
-    db = mongoose.connection.db;
+    const infraestrutura = await conectarComGateDeInfra({
+      uri: config.uri,
+      hostsPermitidos: config.hostsPermitidos,
+      runId: idExecucao,
+      conectar: async () => {
+        await mongoose.connect(config.uri, { dbName: bancoExecucao });
+        return mongoose.connection.db;
+      },
+      desconectar: () => mongoose.disconnect(),
+    });
+
+    db = infraestrutura.db;
+    topologia = infraestrutura.topologia;
+    marcador = infraestrutura.marcador;
+    conectado = true;
   });
 
   afterAll(async () => {
-    await mongoose.disconnect();
+    if (conectado) {
+      await mongoose.disconnect();
+    }
   });
 
   test("conecta somente à base isolada e confirma replica set ou mongos", async () => {
     expect(mongoose.connection.readyState).toBe(1);
     expect(mongoose.connection.name).toBe(bancoExecucao);
 
-    const hello = await verificarTopologiaMongo(db, config.hostsPermitidos);
-    expect(hello.setName).toBeTruthy();
+    expect(topologia.setName).toBeTruthy();
+    expect(marcador).toMatchObject({ _id: idExecucao, environment: "integration" });
 
     const colecoesExistentes = (await db.listCollections().toArray())
       .map(({ name }) => name)
       .filter((name) => !name.startsWith("system."));
     expect(colecoesExistentes).toEqual(["__integration_run"]);
-    expect(await db.collection("__integration_run").findOne({
-      _id: idExecucao,
-      environment: "integration",
-    })).not.toBeNull();
+    expect(marcador.createdAt).toBeInstanceOf(Date);
   });
 
   test("persiste commit e confirma rollback consultando o estado no banco", async () => {
