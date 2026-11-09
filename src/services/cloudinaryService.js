@@ -5,6 +5,10 @@ export function criarPublicIdFotoPerfil() {
   return `pe-na-trilha/perfis/${randomUUID()}`;
 }
 
+export function criarPublicIdFotoTrilha(trilhaId) {
+  return `pe-na-trilha/trilhas/${trilhaId}/${randomUUID()}`;
+}
+
 export function enviarImagem(buffer, publicId) {
   if (!configurarCloudinary()) {
     throw new Error("Serviço de imagens indisponível.");

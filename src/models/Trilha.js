@@ -1,5 +1,21 @@
 import mongoose from "mongoose";
 
+const fotoTrilhaSchema = new mongoose.Schema(
+  {
+    url: { type: String, required: true, trim: true },
+    publicId: { type: String, required: true, trim: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+function serializarTrilha(_doc, ret) {
+  ret.fotos = Array.isArray(ret.fotos) ? ret.fotos : [];
+  for (const foto of ret.fotos) {
+    delete foto.publicId;
+  }
+  return ret;
+}
+
 const trilhaSchema = new mongoose.Schema(
   {
     titulo: {
@@ -22,10 +38,16 @@ const trilhaSchema = new mongoose.Schema(
       ref: "Usuario",
       required: true,
     },
+    fotos: {
+      type: [fotoTrilhaSchema],
+      default: [],
+    },
   },
   {
     timestamps: true,
     versionKey: false,
+    toJSON: { transform: serializarTrilha },
+    toObject: { transform: serializarTrilha },
   },
 );
 
