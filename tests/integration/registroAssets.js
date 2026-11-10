@@ -13,6 +13,23 @@ export function validarPublicIdDaExecucao(publicId) {
   return publicId;
 }
 
+async function buscarMarcadorDaExecucao(db, runId) {
+  const marcador = await db.collection("__integration_run").findOne({
+    _id: runId,
+    environment: "integration",
+  });
+  if (
+    !marcador ||
+    marcador._id !== runId ||
+    marcador.environment !== "integration" ||
+    !(marcador.createdAt instanceof Date) ||
+    !Number.isFinite(marcador.createdAt.getTime())
+  ) {
+    throw new Error("O marcador da execução de integração não foi encontrado.");
+  }
+  return marcador;
+}
+
 export async function registrarAssetDaExecucao(db, runId, publicId) {
   const runIdAtivo = process.env.TEST_RUN_ID || "";
   if (!ID_EXECUCAO_VALIDO.test(runId || "") || runId !== runIdAtivo) {
@@ -20,18 +37,7 @@ export async function registrarAssetDaExecucao(db, runId, publicId) {
   }
 
   validarPublicIdDaExecucao(publicId);
-  const marcador = await db.collection("__integration_run").findOne({
-    _id: runIdAtivo,
-    environment: "integration",
-  });
-  if (
-    !marcador ||
-    marcador._id !== runIdAtivo ||
-    marcador.environment !== "integration" ||
-    !(marcador.createdAt instanceof Date)
-  ) {
-    throw new Error("O marcador da execução de integração não foi encontrado.");
-  }
+  const marcador = await buscarMarcadorDaExecucao(db, runIdAtivo);
 
   const operacaoImagem = await db.collection(NOME_COLECAO_OPERACOES).findOne({
     publicId,
@@ -94,6 +100,8 @@ export async function limparAssetsRegistrados(db, runId, excluirImagem) {
   if (!ID_EXECUCAO_VALIDO.test(runId || "") || runId !== runIdAtivo) {
     throw new Error("O identificador do asset não corresponde à execução de integração ativa.");
   }
+
+  await buscarMarcadorDaExecucao(db, runIdAtivo);
 
   const colecao = db.collection("__integration_assets");
   const registros = await colecao.find({ runId }).toArray();
