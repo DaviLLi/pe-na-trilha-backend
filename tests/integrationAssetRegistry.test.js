@@ -10,6 +10,20 @@ const runId = "a".repeat(32);
 const outroRunId = "b".repeat(32);
 const publicIdRegistrado = "pe-na-trilha/perfis/123e4567-e89b-12d3-a456-426614174000";
 const publicIdNaoRegistrado = "pe-na-trilha/perfis/123e4567-e89b-12d3-a456-426614174001";
+const marcadorValido = {
+  _id: runId,
+  environment: "integration",
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+};
+
+function criarDbLimpeza(registros, updateOne = jest.fn().mockResolvedValue({ modifiedCount: 1 })) {
+  const findOneMarcador = jest.fn().mockResolvedValue(marcadorValido);
+  const findRegistros = jest.fn(() => ({ toArray: async () => registros }));
+  const collection = jest.fn((name) => name === "__integration_run"
+    ? { findOne: findOneMarcador }
+    : { find: findRegistros, updateOne });
+  return { db: { collection }, collection, findOneMarcador, findRegistros, updateOne };
+}
 
 describe("registro explícito de assets da execução", () => {
   let runIdAnterior;
@@ -191,10 +205,8 @@ describe("registro explícito de assets da execução", () => {
 
   test("não exclui IDs de operações que não foram registrados", async () => {
     const registros = [{ _id: "registro-1", runId, publicId: publicIdRegistrado, estado: "pending" }];
-    const find = jest.fn(() => ({ toArray: async () => registros }));
-    const updateOne = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+    const { db } = criarDbLimpeza(registros);
     const excluirImagem = jest.fn().mockResolvedValue(undefined);
-    const db = { collection: jest.fn(() => ({ find, updateOne })) };
 
     expect(() => validarCoberturaAssetsOperacao(
       [publicIdRegistrado, publicIdNaoRegistrado],
@@ -207,6 +219,92 @@ describe("registro explícito de assets da execução", () => {
     expect(excluirImagem).toHaveBeenCalledTimes(1);
     expect(excluirImagem).toHaveBeenCalledWith(publicIdRegistrado);
     expect(excluirImagem).not.toHaveBeenCalledWith(publicIdNaoRegistrado);
+  });
+
+  test("não consulta registros nem exclui assets quando o marcador não existe", async () => {
+    const findOneMarcador = jest.fn().mockResolvedValue(null);
+    const collection = jest.fn((name) => name === "__integration_run"
+      ? { findOne: findOneMarcador }
+      : { find: jest.fn() });
+    const excluirImagem = jest.fn();
+    const db = { collection };
+
+    await expect(limparAssetsRegistrados(db, runId, excluirImagem))
+      .rejects.toThrow("O marcador da execução de integração não foi encontrado.");
+
+    expect(findOneMarcador).toHaveBeenCalledWith({ _id: runId, environment: "integration" });
+    expect(collection).toHaveBeenCalledTimes(1);
+    expect(collection).toHaveBeenCalledWith("__integration_run");
+    expect(excluirImagem).not.toHaveBeenCalled();
+  });
+
+  test("não consulta registros nem exclui assets quando o marcador é inválido", async () => {
+    const findOneMarcador = jest.fn().mockResolvedValue({
+      ...marcadorValido,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const collection = jest.fn((name) => name === "__integration_run"
+      ? { findOne: findOneMarcador }
+      : { find: jest.fn() });
+    const excluirImagem = jest.fn();
+    const db = { collection };
+
+    await expect(limparAssetsRegistrados(db, runId, excluirImagem))
+      .rejects.toThrow("O marcador da execução de integração não foi encontrado.");
+
+    expect(collection).toHaveBeenCalledTimes(1);
+    expect(collection).toHaveBeenCalledWith("__integration_run");
+    expect(excluirImagem).not.toHaveBeenCalled();
+  });
+
+  test("não consulta registros nem exclui assets quando createdAt é uma data inválida", async () => {
+    const findOneMarcador = jest.fn().mockResolvedValue({
+      ...marcadorValido,
+      createdAt: new Date(NaN),
+    });
+    const collection = jest.fn((name) => name === "__integration_run"
+      ? { findOne: findOneMarcador }
+      : { find: jest.fn() });
+    const excluirImagem = jest.fn();
+    const db = { collection };
+
+    await expect(limparAssetsRegistrados(db, runId, excluirImagem))
+      .rejects.toThrow("O marcador da execução de integração não foi encontrado.");
+
+    expect(collection).toHaveBeenCalledTimes(1);
+    expect(collection).toHaveBeenCalledWith("__integration_run");
+    expect(excluirImagem).not.toHaveBeenCalled();
+  });
+
+  test("não consulta registros nem exclui assets quando o marcador pertence a outro run", async () => {
+    const findOneMarcador = jest.fn().mockResolvedValue({
+      ...marcadorValido,
+      _id: outroRunId,
+    });
+    const collection = jest.fn((name) => name === "__integration_run"
+      ? { findOne: findOneMarcador }
+      : { find: jest.fn() });
+    const excluirImagem = jest.fn();
+    const db = { collection };
+
+    await expect(limparAssetsRegistrados(db, runId, excluirImagem))
+      .rejects.toThrow("O marcador da execução de integração não foi encontrado.");
+
+    expect(collection).toHaveBeenCalledTimes(1);
+    expect(collection).toHaveBeenCalledWith("__integration_run");
+    expect(excluirImagem).not.toHaveBeenCalled();
+  });
+
+  test("com marcador válido, consulta e limpa os registros da execução", async () => {
+    const registros = [{ _id: "registro-valido", runId, publicId: publicIdRegistrado, estado: "pending" }];
+    const { db, findOneMarcador, findRegistros } = criarDbLimpeza(registros);
+    const excluirImagem = jest.fn().mockResolvedValue(undefined);
+
+    await limparAssetsRegistrados(db, runId, excluirImagem);
+
+    expect(findOneMarcador).toHaveBeenCalledWith({ _id: runId, environment: "integration" });
+    expect(findRegistros).toHaveBeenCalledWith({ runId });
+    expect(excluirImagem).toHaveBeenCalledWith(publicIdRegistrado);
   });
 
   test("rejeita limpeza com runId divergente antes de consultar ou excluir assets", async () => {
@@ -236,9 +334,8 @@ describe("registro explícito de assets da execução", () => {
 
   test("mantém o registro quando a exclusão falha para permitir nova tentativa", async () => {
     const registros = [{ _id: "registro-1", runId, publicId: publicIdRegistrado, estado: "pending" }];
-    const find = jest.fn(() => ({ toArray: async () => registros }));
     const updateOne = jest.fn();
-    const db = { collection: jest.fn(() => ({ find, updateOne })) };
+    const { db } = criarDbLimpeza(registros, updateOne);
     const excluirImagem = jest.fn().mockRejectedValue(new Error("falha remota"));
 
     await expect(limparAssetsRegistrados(db, runId, excluirImagem)).rejects.toThrow("falha remota");
@@ -253,14 +350,13 @@ describe("registro explícito de assets da execução", () => {
       publicId: `pe-na-trilha/perfis/123e4567-e89b-12d3-a456-42661417400${numero}`,
       estado: "pending",
     }));
-    const find = jest.fn(() => ({ toArray: async () => registros }));
     const updateOne = jest.fn(async (filtro, atualizacao) => {
       const registro = registros.find(({ _id }) => _id === filtro._id);
       if (registro?.estado !== filtro.estado) return { modifiedCount: 0 };
       registro.estado = atualizacao.$set.estado;
       return { modifiedCount: 1 };
     });
-    const db = { collection: jest.fn(() => ({ find, updateOne })) };
+    const { db } = criarDbLimpeza(registros, updateOne);
     const chamadas = [];
     let falharTerceiro = true;
     const excluirImagem = jest.fn(async (publicId) => {
@@ -288,9 +384,7 @@ describe("registro explícito de assets da execução", () => {
 
   test("não chama Cloudinary novamente para asset já confirmado como excluído", async () => {
     const registros = [{ _id: "registro-1", runId, publicId: publicIdRegistrado, estado: "deleted" }];
-    const find = jest.fn(() => ({ toArray: async () => registros }));
-    const updateOne = jest.fn();
-    const db = { collection: jest.fn(() => ({ find, updateOne })) };
+    const { db } = criarDbLimpeza(registros);
     const excluirImagem = jest.fn();
 
     await limparAssetsRegistrados(db, runId, excluirImagem);
