@@ -23,7 +23,7 @@ export default async function globalTeardown() {
 
   try {
     const config = carregarAmbienteIntegracao();
-    bancoExecucao = validarBancoDaExecucao(process.env, config);
+    bancoExecucao = validarBancoDaExecucao(process.env);
     prepararAmbienteAplicacao(process.env, config);
 
     await conectarAposValidarSrv(

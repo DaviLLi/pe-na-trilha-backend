@@ -8,6 +8,9 @@ const VARIAVEIS_CLOUDINARY = [
   "TEST_CLOUDINARY_API_SECRET",
 ];
 const MARCADOR_BANCO_TESTE = /(?:^|[_-])(?:test|testing|integration|ci)(?:[_-]|$)/i;
+const PREFIXO_BANCO_EXECUCAO = "tst_";
+const LIMITE_BANCO_BYTES = 38;
+const ID_EXECUCAO_VALIDO = /^[a-f0-9]{32}$/;
 
 function normalizarHost(host) {
   return host.trim().toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
@@ -83,21 +86,37 @@ export function carregarAmbienteIntegracao(ambiente = process.env) {
   return validarAmbienteIntegracao(ambiente);
 }
 
-export function validarBancoDaExecucao(ambiente, config) {
+export function validarBancoDaExecucao(ambiente) {
   const idExecucao = ambiente.TEST_RUN_ID || "";
   const bancoExecucao = ambiente.TEST_RUN_DB_NAME || "";
-  const idValido = /^[a-f0-9]{32}$/.test(idExecucao);
-  const bancoEsperado = `${config.bancoBase}_run_${idExecucao}`;
+  let bancoEsperado;
+  try {
+    bancoEsperado = criarNomeBancoDaExecucao(idExecucao);
+  } catch {
+    throw new Error("A base isolada da execução de integração é inválida.");
+  }
 
   if (
-    !idValido ||
-    Buffer.byteLength(bancoEsperado, "utf8") > 63 ||
+    Buffer.byteLength(bancoExecucao, "utf8") > LIMITE_BANCO_BYTES ||
     bancoExecucao !== bancoEsperado
   ) {
     throw new Error("A base isolada da execução de integração é inválida.");
   }
 
   return bancoExecucao;
+}
+
+export function criarNomeBancoDaExecucao(runId) {
+  if (!ID_EXECUCAO_VALIDO.test(runId || "")) {
+    throw new Error("O identificador da execução de integração é inválido.");
+  }
+
+  const nomeBanco = `${PREFIXO_BANCO_EXECUCAO}${runId}`;
+  if (Buffer.byteLength(nomeBanco, "utf8") > LIMITE_BANCO_BYTES) {
+    throw new Error("O nome do banco da execução excede o limite permitido.");
+  }
+
+  return nomeBanco;
 }
 
 export function prepararAmbienteAplicacao(ambiente, config) {

@@ -30,7 +30,7 @@ function registrarDiagnostico(etapa, erro) {
 
 export default async function globalSetup() {
   const config = carregarAmbienteIntegracao();
-  const banco = validarBancoDaExecucao(process.env, config);
+  const banco = validarBancoDaExecucao(process.env);
   let etapa = "preflight e validação SRV";
   let erroOriginal;
   let ocorreuErroOriginal = false;

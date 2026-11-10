@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import {
   carregarAmbienteIntegracao,
+  criarNomeBancoDaExecucao,
   prepararAmbienteAplicacao,
 } from "./ambiente.js";
 
@@ -32,7 +33,7 @@ try {
   const idExecucao = randomUUID().replaceAll("-", "");
 
   ambienteExecucao.TEST_RUN_ID = idExecucao;
-  ambienteExecucao.TEST_RUN_DB_NAME = `${config.bancoBase}_run_${idExecucao}`;
+  ambienteExecucao.TEST_RUN_DB_NAME = criarNomeBancoDaExecucao(idExecucao);
   ambienteExecucao.TEST_RUN_JWT_SECRET = randomBytes(32).toString("base64");
   prepararAmbienteAplicacao(ambienteExecucao, config);
 

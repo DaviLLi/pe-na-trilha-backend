@@ -8,7 +8,7 @@ const estado = {
   colecoes: [],
   etapaFalha: null,
   falharDesconexao: false,
-  banco: "pe_na_trilha_integration_run_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  banco: "tst_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   runId: "a".repeat(32),
   erroOriginal: null,
 };

@@ -6,7 +6,7 @@ import {
 import { conectarComGateDeInfra } from "./infraGate.js";
 
 const config = carregarAmbienteIntegracao();
-const bancoExecucao = validarBancoDaExecucao(process.env, config);
+const bancoExecucao = validarBancoDaExecucao(process.env);
 const idExecucao = process.env.TEST_RUN_ID;
 
 describe("infraestrutura MongoDB de integração", () => {
