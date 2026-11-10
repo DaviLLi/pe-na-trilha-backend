@@ -13,7 +13,7 @@ export function validarPublicIdDaExecucao(publicId) {
   return publicId;
 }
 
-async function buscarMarcadorDaExecucao(db, runId) {
+export async function validarMarcadorDaExecucao(db, runId) {
   const marcador = await db.collection("__integration_run").findOne({
     _id: runId,
     environment: "integration",
@@ -37,7 +37,7 @@ export async function registrarAssetDaExecucao(db, runId, publicId) {
   }
 
   validarPublicIdDaExecucao(publicId);
-  const marcador = await buscarMarcadorDaExecucao(db, runIdAtivo);
+  const marcador = await validarMarcadorDaExecucao(db, runIdAtivo);
 
   const operacaoImagem = await db.collection(NOME_COLECAO_OPERACOES).findOne({
     publicId,
@@ -101,7 +101,7 @@ export async function limparAssetsRegistrados(db, runId, excluirImagem) {
     throw new Error("O identificador do asset não corresponde à execução de integração ativa.");
   }
 
-  await buscarMarcadorDaExecucao(db, runIdAtivo);
+  await validarMarcadorDaExecucao(db, runIdAtivo);
 
   const colecao = db.collection("__integration_assets");
   const registros = await colecao.find({ runId }).toArray();

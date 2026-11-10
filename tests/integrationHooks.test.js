@@ -4,6 +4,7 @@ const estado = {
   eventos: [],
   falharTopologia: false,
   marcadorExiste: true,
+  marcadorValido: true,
   colecoes: [],
   banco: "pe_na_trilha_integration_run_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   runId: "a".repeat(32),
@@ -112,6 +113,13 @@ jest.unstable_mockModule("./integration/registroAssets.js", () => ({
   limparAssetsRegistrados: jest.fn(async () => {
     estado.eventos.push("limpar-assets");
   }),
+  validarMarcadorDaExecucao: jest.fn(async () => {
+    estado.eventos.push("buscar:__integration_run");
+    if (!estado.marcadorExiste || !estado.marcadorValido) {
+      throw new Error("O marcador da execução de integração não foi encontrado.");
+    }
+    return marcador;
+  }),
   validarCoberturaAssetsOperacao: jest.fn(),
   validarRegistrosAssets: jest.fn(),
 }));
@@ -131,6 +139,7 @@ describe("hooks globais de integração", () => {
     estado.eventos.length = 0;
     estado.falharTopologia = false;
     estado.marcadorExiste = true;
+    estado.marcadorValido = true;
     estado.colecoes = [];
     process.env.TEST_RUN_ID = estado.runId;
     mongoose.connect.mockClear();
@@ -258,6 +267,23 @@ describe("hooks globais de integração", () => {
     expect(model.init).not.toHaveBeenCalled();
     expect(db.listCollections).not.toHaveBeenCalled();
     expect(excluirImagem).not.toHaveBeenCalled();
+    expect(estado.eventos).not.toContain("remover:__integration_run");
+    expect(mongoose.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  test("globalTeardown não inicializa modelo nem limpa se createdAt do marcador for inválido", async () => {
+    estado.marcadorValido = false;
+
+    await expect(globalTeardown()).rejects.toThrow(
+      "Falha segura; base isolada preservada.",
+    );
+
+    expect(estado.eventos.indexOf("validar-topologia"))
+      .toBeLessThan(estado.eventos.indexOf("buscar:__integration_run"));
+    expect(estado.eventos).not.toContain("iniciar-model");
+    expect(db.listCollections).not.toHaveBeenCalled();
+    expect(excluirImagem).not.toHaveBeenCalled();
+    expect(estado.eventos).not.toContain("limpar-assets");
     expect(estado.eventos).not.toContain("remover:__integration_run");
     expect(mongoose.disconnect).toHaveBeenCalledTimes(1);
   });
