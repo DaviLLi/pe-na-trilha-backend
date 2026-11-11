@@ -45,7 +45,7 @@ export async function atualizarTrilha(req, res, next) {
     const trilha = await Trilha.findOneAndUpdate(
       { _id: req.params.id, proprietario: req.usuario._id },
       req.body,
-      { new: true, runValidators: true },
+      { returnDocument: "after", runValidators: true },
     );
 
     if (!trilha) {

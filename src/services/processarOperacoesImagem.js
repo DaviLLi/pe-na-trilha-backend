@@ -85,7 +85,7 @@ export async function processarUmaOperacao(agora = new Date()) {
         },
       },
     },
-    { new: true },
+    { returnDocument: "after" },
   );
 
   if (!operacao) {
@@ -140,7 +140,7 @@ export async function reenfileirarOperacaoImagem(id) {
         ultimoErro: null,
       },
     },
-    { new: true },
+    { returnDocument: "after" },
   );
 }
 

@@ -5,5 +5,5 @@ import {
 } from "./ambiente.js";
 
 const config = carregarAmbienteIntegracao();
-validarBancoDaExecucao(process.env, config);
+validarBancoDaExecucao(process.env);
 prepararAmbienteAplicacao(process.env, config);

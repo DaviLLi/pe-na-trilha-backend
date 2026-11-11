@@ -8,6 +8,7 @@ import { excluirImagem } from "../../src/services/cloudinaryService.js";
 import { conectarAposValidarSrv, executarAposValidarTopologia } from "./topologia.js";
 import {
   limparAssetsRegistrados,
+  validarMarcadorDaExecucao,
   validarCoberturaAssetsOperacao,
   validarRegistrosAssets,
 } from "./registroAssets.js";
@@ -22,7 +23,7 @@ export default async function globalTeardown() {
 
   try {
     const config = carregarAmbienteIntegracao();
-    bancoExecucao = validarBancoDaExecucao(process.env, config);
+    bancoExecucao = validarBancoDaExecucao(process.env);
     prepararAmbienteAplicacao(process.env, config);
 
     await conectarAposValidarSrv(
@@ -33,15 +34,9 @@ export default async function globalTeardown() {
     conectado = true;
     const db = mongoose.connection.db;
     await executarAposValidarTopologia(db, config.hostsPermitidos, async () => {
-      const marcador = await db.collection("__integration_run").findOne({
-        _id: process.env.TEST_RUN_ID,
-        environment: "integration",
-      });
-      if (!marcador) {
-        throw new Error("Marcador da execução não encontrado.");
-      }
+      await validarMarcadorDaExecucao(db, process.env.TEST_RUN_ID);
 
-      // Só carregue o model após validar a topologia e o marcador: `autoIndex` pode escrever.
+      // Só carregue o model após validar a topologia e o marcador completo: `autoIndex` pode escrever.
       const { default: OperacaoImagem } = await import("../../src/models/OperacaoImagem.js");
       await OperacaoImagem.init();
 

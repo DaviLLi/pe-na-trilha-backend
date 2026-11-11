@@ -1,4 +1,5 @@
 import {
+  criarNomeBancoDaExecucao,
   validarAmbienteIntegracao,
   validarBancoDaExecucao,
 } from "./integration/ambiente.js";
@@ -77,17 +78,37 @@ describe("validação da configuração da suíte de integração", () => {
   });
 
   test("aceita somente o nome de banco associado ao identificador da execução", () => {
-    const config = validarAmbienteIntegracao(ambienteValido);
     const idExecucao = "a".repeat(32);
     const ambienteExecucao = {
       TEST_RUN_ID: idExecucao,
-      TEST_RUN_DB_NAME: `${config.bancoBase}_run_${idExecucao}`,
+      TEST_RUN_DB_NAME: criarNomeBancoDaExecucao(idExecucao),
     };
 
-    expect(validarBancoDaExecucao(ambienteExecucao, config)).toBe(ambienteExecucao.TEST_RUN_DB_NAME);
+    expect(ambienteExecucao.TEST_RUN_DB_NAME).toBe(`tst_${idExecucao}`);
+    expect(Buffer.byteLength(ambienteExecucao.TEST_RUN_DB_NAME, "utf8")).toBe(36);
+    expect(validarBancoDaExecucao(ambienteExecucao)).toBe(ambienteExecucao.TEST_RUN_DB_NAME);
     expect(() => validarBancoDaExecucao({
       ...ambienteExecucao,
       TEST_RUN_DB_NAME: "producao",
-    }, config)).toThrow("A base isolada da execução de integração é inválida.");
+    })).toThrow("A base isolada da execução de integração é inválida.");
+  });
+
+  test("rejeita qualquer nome de banco acima de 38 bytes", () => {
+    const idExecucao = "a".repeat(32);
+    const ambienteExecucao = {
+      TEST_RUN_ID: idExecucao,
+      TEST_RUN_DB_NAME: "x".repeat(39),
+    };
+
+    expect(() => validarBancoDaExecucao(ambienteExecucao))
+      .toThrow("A base isolada da execução de integração é inválida.");
+  });
+
+  test("preserva os 32 caracteres do TEST_RUN_ID ao gerar o nome compacto", () => {
+    const idExecucao = "0123456789abcdef0123456789abcdef";
+
+    expect(criarNomeBancoDaExecucao(idExecucao)).toBe(`tst_${idExecucao}`);
+    expect(() => criarNomeBancoDaExecucao("a".repeat(31)))
+      .toThrow("O identificador da execução de integração é inválido.");
   });
 });

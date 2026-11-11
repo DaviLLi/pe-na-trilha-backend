@@ -92,7 +92,7 @@ async function executarUpload(req, res, next, salvarFoto, statusSucesso) {
             uploadLeaseUntil: { $gt: agora },
           },
           { $set: { uploadLeaseUntil: new Date(agora.getTime() + DURACAO_LEASE_UPLOAD_MS) } },
-          { new: true, session: sessao },
+          { returnDocument: "after", session: sessao },
         );
 
         if (!reservaAtiva) {
@@ -168,7 +168,7 @@ export async function adicionarFotoTrilha(req, res, next) {
             },
           },
         },
-        { new: true, session: sessao },
+        { returnDocument: "after", session: sessao },
       );
 
       if (!trilha) {

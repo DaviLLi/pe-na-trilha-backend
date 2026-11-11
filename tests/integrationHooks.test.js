@@ -4,9 +4,13 @@ const estado = {
   eventos: [],
   falharTopologia: false,
   marcadorExiste: true,
+  marcadorValido: true,
   colecoes: [],
-  banco: "pe_na_trilha_integration_run_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  etapaFalha: null,
+  falharDesconexao: false,
+  banco: "tst_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   runId: "a".repeat(32),
+  erroOriginal: null,
 };
 
 const config = {
@@ -25,6 +29,14 @@ const marcador = {
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
 };
 
+function criarErroSimulado() {
+  const erro = new Error("URI mongodb://user:password@host e CLOUDINARY_API_SECRET=secret");
+  erro.name = "MongoServerError";
+  erro.code = 13;
+  erro.codeName = "Unauthorized";
+  return erro;
+}
+
 const model = {
   collection: { name: "operacaoimagems" },
   init: jest.fn(),
@@ -34,7 +46,9 @@ const db = {
   admin: () => ({
     command: jest.fn(async () => {
       estado.eventos.push("validar-topologia");
-      if (estado.falharTopologia) throw new Error("topologia não autorizada");
+      if (estado.falharTopologia || estado.etapaFalha === "validação da topologia") {
+        throw estado.erroOriginal || new Error("topologia não autorizada");
+      }
       return {
         setName: "rsIntegration",
         me: "mongo.test.internal:27017",
@@ -45,15 +59,18 @@ const db = {
   listCollections: jest.fn(() => ({
     toArray: jest.fn(async () => {
       estado.eventos.push("listar-colecoes");
+      if (estado.etapaFalha === "verificação de banco vazio") throw estado.erroOriginal;
       return estado.colecoes;
     }),
   })),
   createCollection: jest.fn(async () => {
     estado.eventos.push("criar-colecao");
+    if (estado.etapaFalha === "criação do marcador") throw estado.erroOriginal;
   }),
   collection: jest.fn((nome) => ({
     insertOne: jest.fn(async () => {
       estado.eventos.push(`inserir:${nome}`);
+      if (estado.etapaFalha === "criação do marcador") throw estado.erroOriginal;
     }),
     findOne: jest.fn(async () => {
       estado.eventos.push(`buscar:${nome}`);
@@ -74,10 +91,12 @@ const mongoose = {
   connection: { db },
   connect: jest.fn(async () => {
     estado.eventos.push("conectar");
+    if (estado.etapaFalha === "conexão MongoDB") throw estado.erroOriginal;
     return mongoose;
   }),
   disconnect: jest.fn(async () => {
     estado.eventos.push("desconectar");
+    if (estado.falharDesconexao) throw new Error("erro de desconexão com conteúdo interno");
   }),
 };
 
@@ -94,6 +113,7 @@ jest.unstable_mockModule("./integration/ambiente.js", () => ({
 jest.unstable_mockModule("./integration/topologia.js", () => ({
   conectarAposValidarSrv: jest.fn(async (_uri, _hosts, conectar) => {
     estado.eventos.push("validar-srv");
+    if (estado.etapaFalha === "preflight e validação SRV") throw estado.erroOriginal;
     return conectar();
   }),
   executarAposValidarTopologia: jest.fn(async (database, _hosts, operacao) => {
@@ -111,6 +131,13 @@ jest.unstable_mockModule("../src/models/OperacaoImagem.js", () => ({
 jest.unstable_mockModule("./integration/registroAssets.js", () => ({
   limparAssetsRegistrados: jest.fn(async () => {
     estado.eventos.push("limpar-assets");
+  }),
+  validarMarcadorDaExecucao: jest.fn(async () => {
+    estado.eventos.push("buscar:__integration_run");
+    if (!estado.marcadorExiste || !estado.marcadorValido) {
+      throw new Error("O marcador da execução de integração não foi encontrado.");
+    }
+    return marcador;
   }),
   validarCoberturaAssetsOperacao: jest.fn(),
   validarRegistrosAssets: jest.fn(),
@@ -131,7 +158,11 @@ describe("hooks globais de integração", () => {
     estado.eventos.length = 0;
     estado.falharTopologia = false;
     estado.marcadorExiste = true;
+    estado.marcadorValido = true;
     estado.colecoes = [];
+    estado.etapaFalha = null;
+    estado.falharDesconexao = false;
+    estado.erroOriginal = criarErroSimulado();
     process.env.TEST_RUN_ID = estado.runId;
     mongoose.connect.mockClear();
     mongoose.disconnect.mockClear();
@@ -173,6 +204,54 @@ describe("hooks globais de integração", () => {
     expect(db.createCollection).not.toHaveBeenCalled();
     expect(estado.eventos.some((evento) => evento.startsWith("inserir:"))).toBe(false);
     expect(mongoose.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    ["preflight e validação SRV", "preflight e validação SRV"],
+    ["conexão MongoDB", "conexão MongoDB"],
+    ["validação da topologia", "validação da topologia"],
+    ["verificação de banco vazio", "verificação de banco vazio"],
+    ["criação do marcador", "criação do marcador"],
+  ])("registra somente o diagnóstico seguro da etapa %s", async (etapa, etapaLog) => {
+    estado.etapaFalha = etapa;
+
+    let erroApresentado;
+    try {
+      await globalSetup();
+    } catch (erro) {
+      erroApresentado = erro;
+    }
+
+    expect(erroApresentado.cause).toBe(estado.erroOriginal);
+    expect(erroApresentado.message).toContain(estado.banco);
+    expect(erroApresentado.message).toContain(etapa);
+    expect(erroConsole).toHaveBeenCalledWith(JSON.stringify({
+      etapa: etapaLog,
+      name: "MongoServerError",
+      code: 13,
+      codeName: "Unauthorized",
+    }));
+    expect(JSON.stringify(erroConsole.mock.calls)).not.toContain("password");
+    expect(JSON.stringify(erroConsole.mock.calls)).not.toContain("CLOUDINARY_API_SECRET");
+    expect(mongoose.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  test("falha na desconexão não substitui a causa original", async () => {
+    estado.etapaFalha = "validação da topologia";
+    estado.falharDesconexao = true;
+
+    let erroApresentado;
+    try {
+      await globalSetup();
+    } catch (erro) {
+      erroApresentado = erro;
+    }
+
+    expect(erroApresentado.cause).toBe(estado.erroOriginal);
+    expect(erroConsole).toHaveBeenCalledWith(JSON.stringify({
+      etapa: "desconexão MongoDB",
+      name: "Error",
+    }));
   });
 
   test("globalTeardown valida topologia e marcador antes de inicializar o model", async () => {
@@ -258,6 +337,23 @@ describe("hooks globais de integração", () => {
     expect(model.init).not.toHaveBeenCalled();
     expect(db.listCollections).not.toHaveBeenCalled();
     expect(excluirImagem).not.toHaveBeenCalled();
+    expect(estado.eventos).not.toContain("remover:__integration_run");
+    expect(mongoose.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  test("globalTeardown não inicializa modelo nem limpa se createdAt do marcador for inválido", async () => {
+    estado.marcadorValido = false;
+
+    await expect(globalTeardown()).rejects.toThrow(
+      "Falha segura; base isolada preservada.",
+    );
+
+    expect(estado.eventos.indexOf("validar-topologia"))
+      .toBeLessThan(estado.eventos.indexOf("buscar:__integration_run"));
+    expect(estado.eventos).not.toContain("iniciar-model");
+    expect(db.listCollections).not.toHaveBeenCalled();
+    expect(excluirImagem).not.toHaveBeenCalled();
+    expect(estado.eventos).not.toContain("limpar-assets");
     expect(estado.eventos).not.toContain("remover:__integration_run");
     expect(mongoose.disconnect).toHaveBeenCalledTimes(1);
   });
