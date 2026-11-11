@@ -49,7 +49,7 @@ describe("processador de operações de imagem", () => {
     expect(OperacaoImagem.findOneAndUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ estado: "cleanup_pending" }),
       expect.objectContaining({ $set: expect.objectContaining({ estado: "processing" }) }),
-      { new: true },
+      { returnDocument: "after" },
     );
     expect(excluirImagem).toHaveBeenCalledWith("server/asset");
     expect(atualizar).toHaveBeenCalledWith(
@@ -131,7 +131,7 @@ describe("processador de operações de imagem", () => {
     expect(atualizar).toHaveBeenCalledWith(
       { _id: "op-falha", estado: "failed" },
       expect.objectContaining({ $set: expect.objectContaining({ estado: "cleanup_pending" }) }),
-      { new: true },
+      { returnDocument: "after" },
     );
   });
 

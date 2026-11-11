@@ -67,7 +67,7 @@ Para upload e remoção de fotos, o MongoDB local deve operar como replica set, 
    | `PORT` | Não | Porta utilizada pela API | `3000` |
    | `FRONTEND_URL` | Não | Origem autorizada pelo CORS | `http://localhost:5173` |
    | `JWT_SECRET` | Sim | Segredo aleatório de pelo menos 256 bits para assinar tokens | — |
-   | `CLOUDINARY_CLOUD_NAME` | Não | Nome da conta Cloudinary para upload de foto de perfil | — |
+   | `CLOUDINARY_CLOUD_NAME` | Não | Nome da conta Cloudinary para upload de fotos de perfil e trilhas | — |
    | `CLOUDINARY_API_KEY` | Não | Chave de API Cloudinary, mantida somente no backend | — |
    | `CLOUDINARY_API_SECRET` | Não | Segredo de API Cloudinary, mantido somente no backend | — |
 
@@ -93,30 +93,92 @@ Por padrão, a API estará disponível em `http://localhost:3000`.
 
 ## Endpoints
 
-A URL base dos recursos é `/trilhas`.
+A API está disponível em `http://localhost:3000` por padrão. As rotas de leitura das trilhas são públicas. As rotas marcadas como autenticadas exigem `Authorization: Bearer <token>`.
 
-| Método | Endpoint | Descrição | Sucesso |
-| --- | --- | --- | --- |
-| `GET` | `/trilhas` | Lista todas as trilhas, das mais recentes para as mais antigas | `200` |
-| `GET` | `/trilhas/:id` | Busca uma trilha pelo ID | `200` |
-| `POST` | `/trilhas` | Cadastra uma trilha | `201` |
-| `PUT` | `/trilhas/:id` | Atualiza todos os dados de uma trilha | `200` |
-| `DELETE` | `/trilhas/:id` | Exclui uma trilha | `204` |
+### Usuários
 
-### Cadastro e autenticação de usuários
+| Método | Endpoint | Autenticação | Descrição | Sucesso |
+| --- | --- | --- | --- | --- |
+| `POST` | `/usuarios` | Não | Cadastra um usuário | `201` |
+| `POST` | `/usuarios/login` | Não | Autentica por username ou e-mail | `200` |
+| `GET` | `/usuarios/me` | Sim | Consulta o próprio perfil | `200` |
+| `PATCH` | `/usuarios/me` | Sim | Atualiza nome completo, username e/ou e-mail | `200` |
+| `PUT` | `/usuarios/me/foto-perfil` | Sim | Envia ou substitui a foto de perfil (`multipart`, campo `imagem`) | `200` |
+| `DELETE` | `/usuarios/me/foto-perfil` | Sim | Remove a foto de perfil | `200` |
 
-| Método | Endpoint | Descrição | Sucesso |
-| --- | --- | --- | --- |
-| `POST` | `/usuarios` | Cadastra um usuário | `201` |
-| `POST` | `/usuarios/login` | Autentica por username ou e-mail e retorna JWT | `200` |
-| `PUT` | `/usuarios/me/foto-perfil` | Envia ou substitui a foto de perfil autenticado (multipart, campo `imagem`) | `200` |
-| `DELETE` | `/usuarios/me/foto-perfil` | Remove a foto de perfil autenticado | `200` |
+O cadastro aceita `nomeCompleto`, `nomeUsuario`, `email` e `senha`. O backend define o perfil como `user`; não aceita foto nem perfil administrativo no cadastro. O `PATCH /usuarios/me` aceita um ou mais dos campos `nomeCompleto`, `nomeUsuario` e `email`; rejeita campos desconhecidos, `senha` e `perfil`. Username e e-mail são normalizados para minúsculas. Duplicidades retornam `409`.
 
-Fotos de perfil aceitam JPEG, PNG ou WebP, com limite de 5 MiB por arquivo. O formato é conferido pela assinatura do arquivo; o cadastro público não aceita foto. O armazenamento multipart usa memória, portanto uploads simultâneos podem exigir limites adicionais de concorrência ou taxa no gateway. A substituição e remoção registram a limpeza remota em operações persistidas, com tentativas automáticas e recuperação por lease. Operações que esgotam tentativas permanecem registradas para reenvio operacional. Fotos de trilhas ficam fora desta etapa.
+Cadastro retorna o objeto público do usuário. Login retorna `{ "token": "...", "usuario": { ... } }`. O objeto público contém `_id`, `nomeCompleto`, `nomeUsuario`, `email`, `perfil`, `fotoPerfil`, `createdAt` e `updatedAt`; nunca inclui senha, hash ou public ID do Cloudinary. O cadastro não inicia uma sessão: o cliente faz login depois para obter o JWT.
+
+Exemplo de cadastro:
+
+```bash
+curl -X POST http://localhost:3000/usuarios \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nomeCompleto": "Ana da Silva",
+    "nomeUsuario": "ana",
+    "email": "ana@example.com",
+    "senha": "Trilha123!"
+  }'
+```
+
+Exemplo de login:
+
+```bash
+curl -X POST http://localhost:3000/usuarios/login \
+  -H "Content-Type: application/json" \
+  -d '{"identificador":"ana@example.com","senha":"Trilha123!"}'
+```
+
+Para username, o mesmo campo `identificador` recebe o username. O token tem validade de 15 minutos e deve ser enviado no cabeçalho `Authorization`; não o coloque em URLs. A API não oferece refresh token nesta etapa.
+
+Exemplo de consulta e atualização de perfil:
+
+```bash
+curl http://localhost:3000/usuarios/me \
+  -H "Authorization: Bearer <token>"
+
+curl -X PATCH http://localhost:3000/usuarios/me \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"nomeCompleto":"Ana Silva","email":"ana.silva@example.com"}'
+```
+
+### Trilhas
+
+| Método | Endpoint | Autenticação | Descrição | Sucesso |
+| --- | --- | --- | --- | --- |
+| `GET` | `/trilhas` | Não | Lista trilhas da mais recente para a mais antiga | `200` |
+| `GET` | `/trilhas/:id` | Não | Consulta uma trilha | `200` |
+| `POST` | `/trilhas` | Sim | Cria trilha para o usuário autenticado | `201` |
+| `PUT` | `/trilhas/:id` | Sim, proprietário | Substitui título, descrição e endereço | `200` |
+| `DELETE` | `/trilhas/:id` | Sim, proprietário | Exclui a trilha | `204` |
+| `POST` | `/trilhas/:id/fotos` | Sim, proprietário | Adiciona foto (máximo de cinco) | `201` |
+| `PUT` | `/trilhas/:id/fotos/:fotoId` | Sim, proprietário | Substitui a foto indicada | `200` |
+| `DELETE` | `/trilhas/:id/fotos/:fotoId` | Sim, proprietário | Remove a foto indicada | `204` |
+
+Trilhas e fotos de trilha são públicas para leitura. Somente o proprietário pode alterar ou excluir a trilha ou suas fotos; outro usuário recebe `404`. O backend define o proprietário na criação e ignora qualquer proprietário enviado pelo cliente. As respostas públicas das fotos incluem `_id`, `url`, `createdAt` e `updatedAt`, sem o public ID do Cloudinary.
+
+### Upload de imagens
+
+Fotos de perfil e de trilhas aceitam JPEG, PNG ou WebP, com limite de 5 MiB por arquivo e um arquivo por requisição. Envie o arquivo no campo multipart `imagem`; não envie URL, public ID ou proprietário. O formato é conferido pela assinatura do arquivo. O armazenamento multipart usa memória, portanto uploads simultâneos podem exigir limites adicionais de concorrência ou taxa no gateway. A substituição e remoção registram a limpeza remota em operações persistidas, com tentativas automáticas e recuperação por lease. Operações que esgotam tentativas permanecem registradas para reenvio operacional.
+
+Exemplos de upload:
+
+```bash
+curl -X PUT http://localhost:3000/usuarios/me/foto-perfil \
+  -H "Authorization: Bearer <token>" \
+  -F "imagem=@perfil.webp"
+
+curl -X POST http://localhost:3000/trilhas/<trilhaId>/fotos \
+  -H "Authorization: Bearer <token>" \
+  -F "imagem=@trilha.jpg"
+```
 
 Fotos legadas que contenham somente uma URL, sem `fotoPerfilPublicId`, não podem ser excluídas automaticamente do Cloudinary. A remoção limpa a referência no perfil, mas a limpeza remota dessas imagens exige reconciliação operacional.
 
-O login recebe `identificador` e `senha`. Para acessar rotas protegidas, envie o JWT no cabeçalho `Authorization: Bearer <token>`. O token expira em 15 minutos. A API não armazena tokens; o cliente não deve persistir o token em `localStorage`.
+O token expira em 15 minutos. A API não armazena tokens; o cliente não deve persistir o token em `localStorage`.
 
 **Requisito pendente antes da publicação em produção:** aplicar limitação de tentativas no endpoint de login via gateway/proxy ou solução adequada à topologia de implantação. Esta proteção não está implementada nesta etapa.
 
@@ -163,6 +225,7 @@ Ao salvar uma trilha, a API acrescenta o `_id`, `createdAt` e `updatedAt`:
 
 ```bash
 curl -X POST http://localhost:3000/trilhas \
+  -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
     "titulo": "Trilha da Lagoa",
@@ -181,11 +244,7 @@ Os erros seguem este formato:
 }
 ```
 
-Possíveis respostas incluem:
-
-- `400` para corpo, dados ou ID inválidos;
-- `404` para trilha ou rota não encontrada;
-- `500` para erro interno do servidor.
+Possíveis respostas incluem `400` para corpo, validação ou ID inválidos; `401` para token ausente, inválido ou expirado; `404` para recurso inexistente ou sem acesso por propriedade; `409` para username/e-mail duplicado, limite de cinco fotos ou conflito de upload; `413` para arquivo acima de 5 MiB; `502` para falha de upload; `503` quando Cloudinary não está configurado; e `500` para falhas internas. Exclusões de trilhas e fotos de trilha retornam `204` sem corpo; as outras respostas de sucesso são JSON.
 
 ## Scripts disponíveis
 

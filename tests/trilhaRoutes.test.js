@@ -138,7 +138,7 @@ describe("rotas de trilhas", () => {
         expect(atualizar).toHaveBeenCalledWith(
           { _id: idTrilha, proprietario: idProprietario },
           { titulo: "Título", descricao: "Descrição", endereco: "Endereço" },
-          { new: true, runValidators: true },
+          { returnDocument: "after", runValidators: true },
         );
       } else {
         expect(excluir).toHaveBeenCalledWith({
@@ -211,7 +211,7 @@ describe("rotas de trilhas", () => {
         descricao: trilha.descricao,
         endereco: trilha.endereco,
       },
-      { new: true, runValidators: true },
+      { returnDocument: "after", runValidators: true },
     );
     expect(resposta.body.proprietario).toBe(idProprietario);
   });
@@ -240,7 +240,7 @@ describe("rotas de trilhas", () => {
         descricao: "Descrição",
         endereco: "Endereço",
       },
-      { new: true, runValidators: true },
+      { returnDocument: "after", runValidators: true },
     );
   });
 
@@ -282,7 +282,7 @@ describe("rotas de trilhas", () => {
         descricao: "Descrição alterada",
         endereco: "Endereço alterado",
       },
-      { new: true, runValidators: true },
+      { returnDocument: "after", runValidators: true },
     );
     expect(trilhaOriginal).toEqual({
       _id: idTrilha,

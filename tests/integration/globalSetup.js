@@ -11,6 +11,74 @@ function campoSeguro(valor) {
   return undefined;
 }
 
+function identificarTipoFalha(erro) {
+  const nome = String(erro?.name || "").toLowerCase();
+  const code = String(erro?.code || "").toUpperCase();
+  const codeName = String(erro?.codeName || "").toLowerCase();
+
+  if (Number(erro?.code) === 18 || /authentication|authfailed/.test(codeName) || /authentication/.test(nome)) {
+    return "autenticacao";
+  }
+  if (/tls|ssl|certificate|cert_/.test(`${nome} ${code} ${codeName}`)) {
+    return "tls_certificado";
+  }
+  if (/^(ENOTFOUND|EAI_AGAIN|EAI_FAIL|DNS_)/.test(code) || /dns/.test(nome)) {
+    return "dns";
+  }
+  if (/TIMEOUT|TIMEDOUT/.test(code) || /timeout/.test(nome)) {
+    return "timeout";
+  }
+  if (/^(ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|EPIPE)$/.test(code) || /network/.test(nome)) {
+    return "rede";
+  }
+  if (/serverselection/.test(nome)) {
+    return "selecao_servidor";
+  }
+  return "outro";
+}
+
+function coletarFalhasRelacionadas(erro) {
+  const falhas = [];
+  const visitados = new Set();
+  const limiteFalhas = 32;
+
+  function visitar(erroAtual, profundidade = 0) {
+    if (
+      !erroAtual ||
+      typeof erroAtual !== "object" ||
+      visitados.has(erroAtual) ||
+      profundidade > 8 ||
+      falhas.length >= limiteFalhas
+    ) {
+      return;
+    }
+    visitados.add(erroAtual);
+
+    const falha = {
+      name: campoSeguro(erroAtual.name) || "Error",
+      tipoFalha: identificarTipoFalha(erroAtual),
+    };
+    const code = campoSeguro(erroAtual.code);
+    const codeName = campoSeguro(erroAtual.codeName);
+    if (code !== undefined) falha.code = code;
+    if (codeName !== undefined) falha.codeName = codeName;
+    falhas.push(falha);
+
+    visitar(erroAtual.cause, profundidade + 1);
+
+    const servidores = erroAtual.reason?.servers;
+    if (servidores && typeof servidores.values === "function") {
+      for (const servidor of servidores.values()) {
+        visitar(servidor?.error, profundidade + 1);
+        if (falhas.length >= limiteFalhas) break;
+      }
+    }
+  }
+
+  visitar(erro);
+  return falhas;
+}
+
 function registrarDiagnostico(etapa, erro) {
   const diagnostico = {
     etapa,
@@ -20,6 +88,11 @@ function registrarDiagnostico(etapa, erro) {
   const codeName = campoSeguro(erro?.codeName);
   if (code !== undefined) diagnostico.code = code;
   if (codeName !== undefined) diagnostico.codeName = codeName;
+  const tipoFalha = identificarTipoFalha(erro);
+  if (tipoFalha !== "outro") diagnostico.tipoFalha = tipoFalha;
+
+  const falhasRelacionadas = coletarFalhasRelacionadas(erro);
+  if (falhasRelacionadas.length > 1) diagnostico.falhasRelacionadas = falhasRelacionadas;
 
   try {
     console.error(JSON.stringify(diagnostico));

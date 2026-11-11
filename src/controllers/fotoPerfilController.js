@@ -80,11 +80,13 @@ export async function substituirFotoPerfil(req, res, next) {
               uploadLeaseUntil: new Date(agora.getTime() + DURACAO_LEASE_UPLOAD_MS),
             },
           },
-          { new: true, session: sessao },
+          { returnDocument: "after", session: sessao },
         );
 
         if (!operacaoAtiva) {
-          throw new Error("A reserva do upload expirou.");
+          const erro = new Error("A operação de upload expirou. Tente novamente.");
+          erro.status = 409;
+          throw erro;
         }
 
         const usuario = await Usuario.findById(req.usuario._id)
@@ -118,7 +120,9 @@ export async function substituirFotoPerfil(req, res, next) {
           { session: sessao },
         );
         if (concluida.modifiedCount !== 1) {
-          throw new Error("A reserva do upload expirou.");
+          const erro = new Error("A operação de upload expirou. Tente novamente.");
+          erro.status = 409;
+          throw erro;
         }
       });
     } catch (erro) {
@@ -129,6 +133,9 @@ export async function substituirFotoPerfil(req, res, next) {
       }
       if (erro.status === 404) {
         return res.status(404).json({ mensagem: "Usuário não encontrado." });
+      }
+      if (erro.status === 409) {
+        return res.status(409).json({ mensagem: erro.message });
       }
       return next(erro);
     } finally {

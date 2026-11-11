@@ -75,12 +75,12 @@ describe("controller de fotos da trilha", () => {
         $expr: { $lt: [{ $size: { $ifNull: ["$fotos", []] } }, 5] },
       }),
       { $push: { fotos: expect.objectContaining({ _id: expect.any(mongoose.Types.ObjectId) }) } },
-      { new: true, session: sessao },
+      { returnDocument: "after", session: sessao },
     );
     expect(renovar).toHaveBeenCalledWith(
       expect.objectContaining({ estado: "uploading", uploadLeaseToken: expect.any(String) }),
       expect.any(Object),
-      { new: true, session: sessao },
+      { returnDocument: "after", session: sessao },
     );
     expect(atualizarOperacao).toHaveBeenCalledWith(
       expect.objectContaining({ _id: "op-upload", estado: "uploading" }),
