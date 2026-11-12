@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import mongoose from "mongoose";
+import { STATUS_EDITAVEIS } from "../domain/publicacao.js";
 import OperacaoImagem from "../models/OperacaoImagem.js";
 import Trilha from "../models/Trilha.js";
 import {
@@ -155,6 +156,7 @@ export async function adicionarFotoTrilha(req, res, next) {
         {
           _id: req.params.id,
           proprietario: req.usuario._id,
+          status: { $in: STATUS_EDITAVEIS },
           $expr: {
             $lt: [{ $size: { $ifNull: ["$fotos", []] } }, MAX_FOTOS_TRILHA],
           },
@@ -175,6 +177,7 @@ export async function adicionarFotoTrilha(req, res, next) {
         const trilhaDoProprietario = await Trilha.findOne({
           _id: req.params.id,
           proprietario: req.usuario._id,
+          status: { $in: STATUS_EDITAVEIS },
         }).session(sessao);
 
         if (!trilhaDoProprietario) {
@@ -198,6 +201,7 @@ export async function substituirFotoTrilha(req, res, next) {
       const trilha = await Trilha.findOne({
         _id: req.params.id,
         proprietario: req.usuario._id,
+        status: { $in: STATUS_EDITAVEIS },
         "fotos._id": req.params.fotoId,
       }).session(sessao);
 
@@ -232,6 +236,7 @@ export async function removerFotoTrilha(req, res, next) {
       const trilha = await Trilha.findOne({
         _id: req.params.id,
         proprietario: req.usuario._id,
+        status: { $in: STATUS_EDITAVEIS },
         "fotos._id": req.params.fotoId,
       }).session(sessao);
 

@@ -64,3 +64,21 @@ describe("model Trilha", () => {
     expect(legada.toJSON().fotos).toEqual([]);
   });
 });
+
+test("publicações novas começam pendentes com histórico vazio", () => {
+  const trilha = new Trilha();
+  expect(trilha.status).toBe("pending");
+  expect(trilha.historicoModeracao).toEqual([]);
+  expect(trilha.duracao).toBeNull();
+});
+
+test("schema rejeita status, opções e duração inválidos", async () => {
+  const trilha = new Trilha({
+    titulo: "Teste", descricao: "Descrição", endereco: "Local",
+    proprietario: new mongoose.Types.ObjectId(), status: "publicada",
+    dificuldade: "Impossível", duracao: { horas: 0, minutos: 0 },
+  });
+  await expect(trilha.validate()).rejects.toMatchObject({ errors: {
+    status: expect.anything(), dificuldade: expect.anything(), duracao: expect.anything(),
+  } });
+});

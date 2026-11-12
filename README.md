@@ -106,6 +106,15 @@ O banco de integração permanece independente: `npm run test:integration` carre
 
 Por padrão, a API estará disponível em `http://localhost:3000`.
 
+## Moderação e edição por status
+
+O contrato de publicações evoluiu: novos registros são pendentes e consultas públicas
+retornam somente aprovadas. Aprovadas permitem ao autor editar apenas características
+e duração; fotos e dados básicos ficam bloqueados. Rejeitadas exigem reenvio explícito.
+Consulte [o contrato atualizado](docs/moderacao-publicacoes.md) para endpoints privados,
+moderação, validações, histórico e tratamento dos dados legados. As descrições básicas
+de trilhas abaixo devem ser lidas com essas restrições.
+
 ## Endpoints
 
 Por padrão, a API está disponível em `http://localhost:3000`. As rotas de leitura das trilhas são públicas. No fluxo do navegador, a autenticação usa cookies `HttpOnly`; mutações autenticadas também exigem `X-CSRF-Token`.

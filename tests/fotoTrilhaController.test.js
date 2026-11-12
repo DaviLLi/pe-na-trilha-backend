@@ -72,6 +72,7 @@ describe("controller de fotos da trilha", () => {
       expect.objectContaining({
         _id: req.params.id,
         proprietario: req.usuario._id,
+        status: { $in: ["pending", "rejected"] },
         $expr: { $lt: [{ $size: { $ifNull: ["$fotos", []] } }, 5] },
       }),
       { $push: { fotos: expect.objectContaining({ _id: expect.any(mongoose.Types.ObjectId) }) } },
@@ -262,5 +263,37 @@ describe("controller de fotos da trilha", () => {
       { session: sessao },
     );
     expect(res.status).toHaveBeenCalledWith(204);
+  });
+});
+
+describe("aprovação concorrente durante operação de fotos", () => {
+  afterEach(() => jest.restoreAllMocks());
+  test.each(["adicionar", "substituir", "remover"])("%s revalida status no banco antes de persistir", async (acao) => {
+    const sessao = { withTransaction: jest.fn((callback) => callback()), endSession: jest.fn() };
+    jest.spyOn(mongoose, "startSession").mockResolvedValue(sessao);
+    const filtros = [];
+    const buscar = jest.spyOn(Trilha, "findOne").mockImplementation((filtro) => {
+      filtros.push(filtro);
+      return { session: jest.fn().mockResolvedValue(null) };
+    });
+    const alterar = jest.spyOn(Trilha, "findOneAndUpdate").mockImplementation(async (filtro) => {
+      filtros.push(filtro);
+      return null;
+    });
+    jest.spyOn(OperacaoImagem, "create").mockResolvedValue({ _id: "op-upload" });
+    jest.spyOn(OperacaoImagem, "findOneAndUpdate").mockResolvedValue({ _id: "op-upload" });
+    const limpar = jest.spyOn(OperacaoImagem, "updateOne").mockResolvedValue({ modifiedCount: 1 });
+    enviarImagem.mockResolvedValue({ secureUrl: "https://example.test/foto.webp", publicId: "novo" });
+    const req = { params: { id: "507f1f77bcf86cd799439011", fotoId: "507f1f77bcf86cd799439013" }, usuario: { _id: "507f1f77bcf86cd799439012" }, imagemValidada: Buffer.from("foto") };
+    const res = criarResposta();
+    const next = jest.fn();
+    await ({ adicionar: adicionarFotoTrilha, substituir: substituirFotoTrilha, remover: removerFotoTrilha })[acao](req, res, next);
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(next).not.toHaveBeenCalled();
+    expect(filtros.length).toBeGreaterThan(0);
+    for (const filtro of filtros) expect(filtro).toMatchObject({ proprietario: req.usuario._id, status: { $in: ["pending", "rejected"] } });
+    if (acao === "adicionar") expect(alterar).toHaveBeenCalled();
+    else expect(buscar).toHaveBeenCalled();
+    if (acao !== "remover") expect(limpar).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ $set: expect.objectContaining({ estado: "cleanup_pending" }) }));
   });
 });
