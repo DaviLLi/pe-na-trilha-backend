@@ -45,6 +45,8 @@ describe("validação da configuração da suíte de integração", () => {
       MONGO_URI: "mongodb://legacy/db",
       MONGO_URI_DEVELOPMENT: "mongodb://development/db",
       MONGO_URI_PRODUCTION: "mongodb://production/db",
+      JWT_SECRET: "segredo-normal",
+      CSRF_SECRET: "csrf-normal",
     };
     const config = validarAmbienteIntegracao(ambienteValido);
 
@@ -53,6 +55,9 @@ describe("validação da configuração da suíte de integração", () => {
     expect(ambiente).not.toHaveProperty("MONGO_URI");
     expect(ambiente).not.toHaveProperty("MONGO_URI_DEVELOPMENT");
     expect(ambiente).not.toHaveProperty("MONGO_URI_PRODUCTION");
+    expect(ambiente.JWT_SECRET).not.toBe("segredo-normal");
+    expect(ambiente.CSRF_SECRET).not.toBe("csrf-normal");
+    expect(Buffer.byteLength(ambiente.CSRF_SECRET, "utf8")).toBeGreaterThanOrEqual(32);
   });
 
   test("exige banco com marcador de teste", () => {

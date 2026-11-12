@@ -35,6 +35,7 @@ try {
   ambienteExecucao.TEST_RUN_ID = idExecucao;
   ambienteExecucao.TEST_RUN_DB_NAME = criarNomeBancoDaExecucao(idExecucao);
   ambienteExecucao.TEST_RUN_JWT_SECRET = randomBytes(32).toString("base64");
+  ambienteExecucao.TEST_RUN_CSRF_SECRET = randomBytes(32).toString("base64");
   prepararAmbienteAplicacao(ambienteExecucao, config);
 
   process.exitCode = await executarJest(ambienteExecucao);

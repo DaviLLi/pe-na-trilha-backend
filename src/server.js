@@ -2,6 +2,8 @@ import "./config/carregarAmbiente.js";
 import app from "./app.js";
 import { conectarBanco, obterUriMongo } from "./config/database.js";
 import { obterChaveJwt } from "./config/jwt.js";
+import { obterSegredoCsrf } from "./config/csrf.js";
+import { validarConfiguracaoCookies } from "./config/authCookies.js";
 import mongoose from "mongoose";
 import {
   iniciarProcessadorOperacoesImagem,
@@ -16,6 +18,8 @@ async function iniciarServidor() {
   try {
     obterUriMongo();
     obterChaveJwt();
+    obterSegredoCsrf();
+    validarConfiguracaoCookies();
     await conectarBanco();
     iniciarProcessadorOperacoesImagem();
 

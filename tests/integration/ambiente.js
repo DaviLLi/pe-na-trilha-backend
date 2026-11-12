@@ -124,6 +124,7 @@ export function prepararAmbienteAplicacao(ambiente, config) {
   delete ambiente.MONGO_URI_DEVELOPMENT;
   delete ambiente.MONGO_URI_PRODUCTION;
   delete ambiente.JWT_SECRET;
+  delete ambiente.CSRF_SECRET;
   delete ambiente.CLOUDINARY_CLOUD_NAME;
   delete ambiente.CLOUDINARY_API_KEY;
   delete ambiente.CLOUDINARY_API_SECRET;
@@ -132,5 +133,7 @@ export function prepararAmbienteAplicacao(ambiente, config) {
   ambiente.CLOUDINARY_API_KEY = config.cloudinary.TEST_CLOUDINARY_API_KEY;
   ambiente.CLOUDINARY_API_SECRET = config.cloudinary.TEST_CLOUDINARY_API_SECRET;
   ambiente.TEST_RUN_JWT_SECRET ??= randomBytes(32).toString("base64");
+  ambiente.TEST_RUN_CSRF_SECRET ??= randomBytes(32).toString("base64");
   ambiente.JWT_SECRET = ambiente.TEST_RUN_JWT_SECRET;
+  ambiente.CSRF_SECRET = ambiente.TEST_RUN_CSRF_SECRET;
 }

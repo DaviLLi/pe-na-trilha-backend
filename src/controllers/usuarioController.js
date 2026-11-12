@@ -1,16 +1,12 @@
 import bcrypt from "bcrypt";
-import { SignJWT } from "jose";
-import {
-  ALGORITMO_JWT,
-  obterChaveJwt,
-  TEMPO_EXPIRACAO_JWT,
-} from "../config/jwt.js";
+import { definirCookiesAuth } from "../config/authCookies.js";
+import { criarSessaoAuth } from "../services/authSessionService.js";
 import Usuario from "../models/Usuario.js";
 
 const MENSAGEM_CREDENCIAIS_INVALIDAS = "Credenciais inválidas.";
 const ROUNDS_COMPARACAO_FALHA = 12;
 
-function dadosPublicosUsuario(usuario) {
+export function dadosPublicosUsuario(usuario) {
   return {
     _id: usuario._id,
     nomeCompleto: usuario.nomeCompleto,
@@ -54,15 +50,10 @@ export async function loginUsuario(req, res, next) {
       });
     }
 
-    const token = await new SignJWT({})
-      .setProtectedHeader({ alg: ALGORITMO_JWT, typ: "JWT" })
-      .setSubject(usuario._id.toString())
-      .setIssuedAt()
-      .setExpirationTime(TEMPO_EXPIRACAO_JWT)
-      .sign(obterChaveJwt());
+    const sessao = await criarSessaoAuth(usuario);
+    definirCookiesAuth(res, sessao);
 
     return res.status(200).json({
-      token,
       usuario: dadosPublicosUsuario(usuario),
     });
   } catch (erro) {

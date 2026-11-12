@@ -7,6 +7,7 @@ import {
   listarTrilhas,
 } from "../controllers/trilhaController.js";
 import { autenticarToken } from "../middlewares/autenticarToken.js";
+import { validarCsrf } from "../middlewares/validarCsrf.js";
 import { validarTrilha } from "../middlewares/validarTrilha.js";
 import { validarProprietarioTrilha } from "../middlewares/validarProprietarioTrilha.js";
 import {
@@ -27,6 +28,7 @@ router.get("/:id", buscarTrilha);
 router.post(
   "/:id/fotos",
   autenticarToken,
+  validarCsrf,
   validarProprietarioTrilha,
   exigirCloudinaryDisponivel,
   receberImagem,
@@ -36,6 +38,7 @@ router.post(
 router.put(
   "/:id/fotos/:fotoId",
   autenticarToken,
+  validarCsrf,
   validarProprietarioTrilha,
   exigirCloudinaryDisponivel,
   receberImagem,
@@ -45,12 +48,13 @@ router.put(
 router.delete(
   "/:id/fotos/:fotoId",
   autenticarToken,
+  validarCsrf,
   validarProprietarioTrilha,
   exigirCloudinaryDisponivel,
   removerFotoTrilha,
 );
-router.post("/", autenticarToken, validarTrilha, criarTrilha);
-router.put("/:id", autenticarToken, validarTrilha, atualizarTrilha);
-router.delete("/:id", autenticarToken, excluirTrilha);
+router.post("/", autenticarToken, validarCsrf, validarTrilha, criarTrilha);
+router.put("/:id", autenticarToken, validarCsrf, validarTrilha, atualizarTrilha);
+router.delete("/:id", autenticarToken, validarCsrf, excluirTrilha);
 
 export default router;
