@@ -6,12 +6,18 @@ import {
   rotaNaoEncontrada,
   tratarErros,
 } from "./middlewares/errorHandler.js";
+import { origemFrontendPermitida } from "./config/origensFrontend.js";
 
 const app = express();
 
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    origin(origem, callback) {
+      callback(null, origemFrontendPermitida(origem));
+    },
+    credentials: true,
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
   }),
 );
 app.use(express.json());

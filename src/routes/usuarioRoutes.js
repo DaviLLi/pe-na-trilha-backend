@@ -9,6 +9,13 @@ import { validarLogin } from "../middlewares/validarLogin.js";
 import { validarUsuario } from "../middlewares/validarUsuario.js";
 import { validarAtualizacaoUsuario } from "../middlewares/validarAtualizacaoUsuario.js";
 import { autenticarToken } from "../middlewares/autenticarToken.js";
+import { validarCsrf } from "../middlewares/validarCsrf.js";
+import { validarOrigemFrontend } from "../middlewares/validarOrigemFrontend.js";
+import {
+  consultarTokenCsrf,
+  logoutUsuario,
+  renovarSessao,
+} from "../controllers/authSessionController.js";
 import {
   exigirCloudinaryDisponivel,
   receberFotoPerfil,
@@ -21,12 +28,16 @@ import {
 
 const router = Router();
 
-router.post("/login", validarLogin, loginUsuario);
+router.post("/login", validarOrigemFrontend, validarLogin, loginUsuario);
+router.post("/refresh", validarOrigemFrontend, renovarSessao);
+router.post("/logout", validarOrigemFrontend, autenticarToken, validarCsrf, logoutUsuario);
+router.get("/csrf", autenticarToken, consultarTokenCsrf);
 router.get("/me", autenticarToken, buscarUsuarioAtual);
-router.patch("/me", autenticarToken, validarAtualizacaoUsuario, atualizarUsuarioAtual);
+router.patch("/me", autenticarToken, validarCsrf, validarAtualizacaoUsuario, atualizarUsuarioAtual);
 router.put(
   "/me/foto-perfil",
   autenticarToken,
+  validarCsrf,
   exigirCloudinaryDisponivel,
   receberFotoPerfil,
   validarFotoPerfil,
@@ -35,6 +46,7 @@ router.put(
 router.delete(
   "/me/foto-perfil",
   autenticarToken,
+  validarCsrf,
   exigirCloudinaryDisponivel,
   removerFotoPerfil,
 );

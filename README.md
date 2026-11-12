@@ -54,13 +54,16 @@ Para upload e remoção de fotos, o MongoDB local deve operar como replica set, 
    NODE_ENV=development
    MONGO_URI_DEVELOPMENT=mongodb+srv://usuario:senha@cluster.mongodb.net/penatrilha
    FRONTEND_URL=http://localhost:5173
+   FRONTEND_ORIGINS=http://localhost:5173
    JWT_SECRET=
+   CSRF_SECRET=
+   AUTH_COOKIE_SAME_SITE=lax
    CLOUDINARY_CLOUD_NAME=
    CLOUDINARY_API_KEY=
    CLOUDINARY_API_SECRET=
    ```
 
-   Gere um segredo aleatório com pelo menos 256 bits (por exemplo, `openssl rand -base64 32`) e configure-o somente no `.env` local ou no gerenciador de segredos do ambiente. Não coloque o valor real no repositório.
+   Gere valores independentes para `JWT_SECRET` e `CSRF_SECRET`, cada um com pelo menos 256 bits (por exemplo, `openssl rand -base64 32`), e configure-os somente no `.env` local ou no gerenciador de segredos do ambiente. Não coloque valores reais no repositório.
 
    | Variável | Obrigatória | Descrição | Padrão |
    | --- | --- | --- | --- |
@@ -68,13 +71,16 @@ Para upload e remoção de fotos, o MongoDB local deve operar como replica set, 
    | `MONGO_URI_DEVELOPMENT` | Sim em desenvolvimento | URI exclusiva do MongoDB de desenvolvimento | — |
    | `MONGO_URI_PRODUCTION` | Sim em produção | URI exclusiva do MongoDB de produção | — |
    | `PORT` | Não | Porta utilizada pela API | `3000` |
-   | `FRONTEND_URL` | Não | Origem autorizada pelo CORS | `http://localhost:5173` |
+   | `FRONTEND_URL` | Não | Origem frontend legada/fallback | `http://localhost:5173` |
+   | `FRONTEND_ORIGINS` | Não | Lista separada por vírgulas de origens frontend exatas autorizadas por CORS e Origin | `FRONTEND_URL` |
    | `JWT_SECRET` | Sim | Segredo aleatório de pelo menos 256 bits para assinar tokens | — |
+   | `CSRF_SECRET` | Sim | Segredo independente de pelo menos 256 bits para tokens CSRF vinculados à sessão | — |
+   | `AUTH_COOKIE_SAME_SITE` | Não | `lax`, `strict` ou `none`; `none` exige ambiente HTTPS de produção | `lax` em desenvolvimento, `none` em produção |
    | `CLOUDINARY_CLOUD_NAME` | Não | Nome da conta Cloudinary para upload de fotos de perfil e trilhas | — |
    | `CLOUDINARY_API_KEY` | Não | Chave de API Cloudinary, mantida somente no backend | — |
    | `CLOUDINARY_API_SECRET` | Não | Segredo de API Cloudinary, mantido somente no backend | — |
 
-As credenciais Cloudinary são opcionais para iniciar a API. Sem elas, cadastro, login e trilhas continuam disponíveis, enquanto os endpoints de foto respondem `503`. Nunca configure credenciais Cloudinary no frontend.
+As credenciais Cloudinary são opcionais para iniciar a API. Sem elas, cadastro, login e trilhas continuam disponíveis, enquanto os endpoints de foto respondem `503`. Nunca configure credenciais Cloudinary no frontend. Operações de sessão usam transações MongoDB; instâncias MongoDB locais precisam operar como replica set.
 
 > Não publique o arquivo `.env`: ele pode conter credenciais e já está incluído no `.gitignore`.
 
@@ -102,22 +108,25 @@ Por padrão, a API estará disponível em `http://localhost:3000`.
 
 ## Endpoints
 
-A API está disponível em `http://localhost:3000` por padrão. As rotas de leitura das trilhas são públicas. As rotas marcadas como autenticadas exigem `Authorization: Bearer <token>`.
+Por padrão, a API está disponível em `http://localhost:3000`. As rotas de leitura das trilhas são públicas. No fluxo do navegador, a autenticação usa cookies `HttpOnly`; mutações autenticadas também exigem `X-CSRF-Token`.
 
 ### Usuários
 
 | Método | Endpoint | Autenticação | Descrição | Sucesso |
 | --- | --- | --- | --- | --- |
 | `POST` | `/usuarios` | Não | Cadastra um usuário | `201` |
-| `POST` | `/usuarios/login` | Não | Autentica por username ou e-mail | `200` |
+| `POST` | `/usuarios/login` | Origin frontend permitido | Autentica e define cookies da sessão | `200` |
+| `POST` | `/usuarios/refresh` | Origin frontend permitido e cookie de refresh | Rotaciona o refresh token e renova a sessão | `200` |
+| `POST` | `/usuarios/logout` | Cookie de acesso, Origin permitido e CSRF | Revoga a sessão e limpa cookies | `204` |
+| `GET` | `/usuarios/csrf` | Cookie de acesso | Retorna token CSRF vinculado à sessão atual | `200` |
 | `GET` | `/usuarios/me` | Sim | Consulta o próprio perfil | `200` |
-| `PATCH` | `/usuarios/me` | Sim | Atualiza nome completo, username e/ou e-mail | `200` |
-| `PUT` | `/usuarios/me/foto-perfil` | Sim | Envia ou substitui a foto de perfil (`multipart`, campo `imagem`) | `200` |
-| `DELETE` | `/usuarios/me/foto-perfil` | Sim | Remove a foto de perfil | `200` |
+| `PATCH` | `/usuarios/me` | Cookie de acesso e CSRF | Atualiza nome completo, username e/ou e-mail | `200` |
+| `PUT` | `/usuarios/me/foto-perfil` | Cookie de acesso e CSRF | Envia ou substitui a foto de perfil (`multipart`, campo `imagem`) | `200` |
+| `DELETE` | `/usuarios/me/foto-perfil` | Cookie de acesso e CSRF | Remove a foto de perfil | `200` |
 
 O cadastro aceita `nomeCompleto`, `nomeUsuario`, `email` e `senha`. O backend define o perfil como `user`; não aceita foto nem perfil administrativo no cadastro. O `PATCH /usuarios/me` aceita um ou mais dos campos `nomeCompleto`, `nomeUsuario` e `email`; rejeita campos desconhecidos, `senha` e `perfil`. Username e e-mail são normalizados para minúsculas. Duplicidades retornam `409`.
 
-Cadastro retorna o objeto público do usuário. Login retorna `{ "token": "...", "usuario": { ... } }`. O objeto público contém `_id`, `nomeCompleto`, `nomeUsuario`, `email`, `perfil`, `fotoPerfil`, `createdAt` e `updatedAt`; nunca inclui senha, hash ou public ID do Cloudinary. O cadastro não inicia uma sessão: o cliente faz login depois para obter o JWT.
+Cadastro retorna o objeto público do usuário e não inicia sessão. Login retorna `{ "usuario": { ... } }` e define cookies de acesso e refresh `HttpOnly`; nenhum token de autenticação é retornado no JSON. O objeto público contém `_id`, `nomeCompleto`, `nomeUsuario`, `email`, `perfil`, `fotoPerfil`, `createdAt` e `updatedAt`; nunca inclui senha, hash ou public ID do Cloudinary.
 
 Exemplo de cadastro:
 
@@ -136,20 +145,28 @@ Exemplo de login:
 
 ```bash
 curl -X POST http://localhost:3000/usuarios/login \
+  -H "Origin: http://localhost:5173" \
   -H "Content-Type: application/json" \
   -d '{"identificador":"ana@example.com","senha":"Trilha123!"}'
 ```
 
-Para username, o mesmo campo `identificador` recebe o username. O token tem validade de 15 minutos e deve ser enviado no cabeçalho `Authorization`; não o coloque em URLs. A API não oferece refresh token nesta etapa.
+Para username, o mesmo campo `identificador` recebe o username. O access JWT dura 15 minutos e fica em cookie `HttpOnly`; o refresh opaco tem validade absoluta de 30 dias, é armazenado no banco somente como hash e gira a cada renovação. Reutilizar um hash consumido revoga a sessão. O cliente renova a sessão após reload e quando o access JWT expira.
+
+O cliente deve usar `withCredentials` e enviar `X-CSRF-Token` nas requisições autenticadas que alteram estado. Obtenha o token com `GET /usuarios/csrf`; ele é HMAC vinculado ao ID da sessão e ao `CSRF_SECRET`, e não autentica por si só. Login, refresh e logout exigem `Origin` exatamente presente em `FRONTEND_ORIGINS`. CORS permite credenciais somente para essas origens; curingas não são aceitos.
+
+Cookies usam `HttpOnly`, `Path=/` e não definem `Domain`. Em produção são `Secure` e usam o prefixo `__Host-`. Configure `AUTH_COOKIE_SAME_SITE=none` para frontend/API realmente cross-site; `SameSite=None` requer HTTPS. Os domínios gratuitos padrão da Vercel e Render costumam pertencer a sites registráveis diferentes: navegadores podem bloquear cookies de terceiros mesmo com CORS e `SameSite=None`. Para disponibilidade SaaS, prefira subdomínios do mesmo domínio próprio (por exemplo, `app.exemplo.com` e `api.exemplo.com`) ou um proxy/BFF no mesmo site. A configuração precisa ser testada nos navegadores suportados antes da publicação.
 
 Exemplo de consulta e atualização de perfil:
 
 ```bash
 curl http://localhost:3000/usuarios/me \
-  -H "Authorization: Bearer <token>"
+  -H "Origin: http://localhost:5173" \
+  -b cookies.txt -c cookies.txt
 
 curl -X PATCH http://localhost:3000/usuarios/me \
-  -H "Authorization: Bearer <token>" \
+  -H "Origin: http://localhost:5173" \
+  -H "X-CSRF-Token: <csrf-token-retornado-por-GET-usuarios-csrf>" \
+  -b cookies.txt -c cookies.txt \
   -H "Content-Type: application/json" \
   -d '{"nomeCompleto":"Ana Silva","email":"ana.silva@example.com"}'
 ```
@@ -177,17 +194,19 @@ Exemplos de upload:
 
 ```bash
 curl -X PUT http://localhost:3000/usuarios/me/foto-perfil \
-  -H "Authorization: Bearer <token>" \
+  -H "X-CSRF-Token: <csrf-token>" \
+  -b cookies.txt -c cookies.txt \
   -F "imagem=@perfil.webp"
 
 curl -X POST http://localhost:3000/trilhas/<trilhaId>/fotos \
-  -H "Authorization: Bearer <token>" \
+  -H "X-CSRF-Token: <csrf-token>" \
+  -b cookies.txt -c cookies.txt \
   -F "imagem=@trilha.jpg"
 ```
 
 Fotos legadas que contenham somente uma URL, sem `fotoPerfilPublicId`, não podem ser excluídas automaticamente do Cloudinary. A remoção limpa a referência no perfil, mas a limpeza remota dessas imagens exige reconciliação operacional.
 
-O token expira em 15 minutos. A API não armazena tokens; o cliente não deve persistir o token em `localStorage`.
+Logout invalida a sessão no banco antes de apagar os cookies. O cliente não persiste JWT ou refresh token em Web Storage; o navegador envia os cookies HttpOnly automaticamente. O endpoint `GET /usuarios/csrf` requer uma sessão ativa.
 
 **Requisito pendente antes da publicação em produção:** aplicar limitação de tentativas no endpoint de login via gateway/proxy ou solução adequada à topologia de implantação. Esta proteção não está implementada nesta etapa.
 

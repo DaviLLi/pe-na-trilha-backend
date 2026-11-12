@@ -3,12 +3,17 @@ import bcrypt from "bcrypt";
 import { randomBytes } from "node:crypto";
 import { jwtVerify, SignJWT } from "jose";
 import request from "supertest";
+import mongoose from "mongoose";
 import app from "../src/app.js";
 import { obterChaveJwt } from "../src/config/jwt.js";
+import AuthSession from "../src/models/AuthSession.js";
+import RefreshToken from "../src/models/RefreshToken.js";
 import Usuario from "../src/models/Usuario.js";
 
 const segredoAnterior = process.env.JWT_SECRET;
 const segredoTeste = randomBytes(32).toString("base64");
+const segredoCsrfAnterior = process.env.CSRF_SECRET;
+const segredoCsrfTeste = randomBytes(32).toString("base64");
 const idUsuario = "507f1f77bcf86cd799439011";
 
 async function criarTokenUsuario() {
@@ -22,7 +27,17 @@ async function criarTokenUsuario() {
 
 beforeAll(() => {
   process.env.JWT_SECRET = segredoTeste;
+  process.env.CSRF_SECRET = segredoCsrfTeste;
 });
+
+function mockCriacaoSessao() {
+  jest.spyOn(mongoose, "startSession").mockResolvedValue({
+    withTransaction: async (callback) => callback(),
+    endSession: jest.fn(),
+  });
+  jest.spyOn(AuthSession, "create").mockResolvedValue([]);
+  jest.spyOn(RefreshToken, "create").mockResolvedValue([]);
+}
 
 afterEach(() => {
   jest.restoreAllMocks();
@@ -33,6 +48,11 @@ afterAll(() => {
     delete process.env.JWT_SECRET;
   } else {
     process.env.JWT_SECRET = segredoAnterior;
+  }
+  if (segredoCsrfAnterior === undefined) {
+    delete process.env.CSRF_SECRET;
+  } else {
+    process.env.CSRF_SECRET = segredoCsrfAnterior;
   }
 });
 
@@ -162,9 +182,11 @@ describe("POST /usuarios", () => {
       const buscarUsuario = jest
         .spyOn(Usuario, "findOne")
         .mockReturnValue(query);
+      mockCriacaoSessao();
 
       const resposta = await request(app)
         .post("/usuarios/login")
+        .set("Origin", "http://localhost:5173")
         .send({ identificador, senha: "Trilha123!", perfil: "admin" });
 
       expect(resposta.status).toBe(200);
@@ -184,14 +206,22 @@ describe("POST /usuarios", () => {
       expect(JSON.stringify(resposta.body)).not.toContain(hash);
       expect(JSON.stringify(resposta.body)).not.toContain("Trilha123!");
 
+      expect(resposta.body).not.toHaveProperty("token");
+      const cookies = resposta.headers["set-cookie"];
+      expect(cookies).toHaveLength(2);
+      expect(cookies.join(";")).toContain("HttpOnly");
+      expect(cookies.join(";")).toContain("SameSite=Lax");
+      const accessCookie = cookies.find((cookie) => cookie.startsWith("pnt_access="));
+      const accessToken = decodeURIComponent(accessCookie.split(";")[0].split("=")[1]);
       const { payload, protectedHeader } = await jwtVerify(
-        resposta.body.token,
+        accessToken,
         obterChaveJwt(),
         { algorithms: ["HS256"] },
       );
       expect(protectedHeader.alg).toBe("HS256");
       expect(payload).toMatchObject({ sub: id });
-      expect(Object.keys(payload).sort()).toEqual(["exp", "iat", "sub"]);
+      expect(payload.sid).toBeDefined();
+      expect(Object.keys(payload).sort()).toEqual(["exp", "iat", "sid", "sub"]);
       expect(payload.exp - payload.iat).toBe(15 * 60);
     },
   );
@@ -210,7 +240,7 @@ describe("POST /usuarios", () => {
       select: jest.fn().mockResolvedValue(usuario),
     });
 
-    const resposta = await request(app).post("/usuarios/login").send({
+    const resposta = await request(app).post("/usuarios/login").set("Origin", "http://localhost:5173").send({
       identificador: "ana@exemplo.com",
       senha: "Trilha123!",
     });
@@ -224,6 +254,7 @@ describe("POST /usuarios", () => {
 
     const resposta = await request(app)
       .post("/usuarios/login")
+      .set("Origin", "http://localhost:5173")
       .send({ identificador: "ana@exemplo.com" });
 
     expect(resposta.status).toBe(400);
@@ -236,7 +267,7 @@ describe("POST /usuarios", () => {
     jest.spyOn(Usuario, "findOne").mockReturnValue(query);
     const logErro = jest.spyOn(console, "error").mockImplementation(() => {});
 
-    const resposta = await request(app).post("/usuarios/login").send({
+    const resposta = await request(app).post("/usuarios/login").set("Origin", "http://localhost:5173").send({
       identificador: "ana@exemplo.com",
       senha: "Trilha123!",
     });
@@ -248,6 +279,30 @@ describe("POST /usuarios", () => {
 });
 
 describe("perfil do usuário autenticado", () => {
+  test("GET /usuarios/csrf retorna 401 controlado sem sessão compatível", async () => {
+    const token = await criarTokenUsuario();
+    const usuarioAutenticado = {
+      _id: idUsuario,
+      nomeCompleto: "Ana da Silva",
+      nomeUsuario: "ana",
+      email: "ana@example.com",
+      perfil: "user",
+    };
+    const buscar = jest.spyOn(Usuario, "findById").mockReturnValue({
+      select: jest.fn().mockResolvedValue(usuarioAutenticado),
+    });
+
+    const resposta = await request(app)
+      .get("/usuarios/csrf")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(resposta.status).toBe(401);
+    expect(resposta.body).toEqual({
+      mensagem: "Autenticação inválida ou expirada.",
+    });
+    expect(buscar).toHaveBeenCalledTimes(1);
+  });
+
   test.each(["get", "patch"])("%s /usuarios/me exige autenticação", async (metodo) => {
     const buscar = jest.spyOn(Usuario, "findById");
     const requisicao = request(app)[metodo]("/usuarios/me");
