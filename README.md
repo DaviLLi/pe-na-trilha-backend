@@ -47,11 +47,12 @@ Para upload e remoção de fotos, o MongoDB local deve operar como replica set, 
    cp .env.example .env
    ```
 
-4. Preencha o `.env` com os dados do seu ambiente:
+4. Preencha o `.env` com a configuração exclusiva de desenvolvimento. Mantenha em `MONGO_URI_DEVELOPMENT` exatamente o URI do banco de desenvolvimento atual:
 
    ```env
    PORT=3000
-   MONGO_URI=mongodb+srv://usuario:senha@cluster.mongodb.net/penatrilha
+   NODE_ENV=development
+   MONGO_URI_DEVELOPMENT=mongodb+srv://usuario:senha@cluster.mongodb.net/penatrilha
    FRONTEND_URL=http://localhost:5173
    JWT_SECRET=
    CLOUDINARY_CLOUD_NAME=
@@ -63,7 +64,9 @@ Para upload e remoção de fotos, o MongoDB local deve operar como replica set, 
 
    | Variável | Obrigatória | Descrição | Padrão |
    | --- | --- | --- | --- |
-   | `MONGO_URI` | Sim | URI de conexão com o MongoDB | — |
+   | `NODE_ENV` | Definida pelo script | Ambiente selecionado (`development` ou `production`) | — |
+   | `MONGO_URI_DEVELOPMENT` | Sim em desenvolvimento | URI exclusiva do MongoDB de desenvolvimento | — |
+   | `MONGO_URI_PRODUCTION` | Sim em produção | URI exclusiva do MongoDB de produção | — |
    | `PORT` | Não | Porta utilizada pela API | `3000` |
    | `FRONTEND_URL` | Não | Origem autorizada pelo CORS | `http://localhost:5173` |
    | `JWT_SECRET` | Sim | Segredo aleatório de pelo menos 256 bits para assinar tokens | — |
@@ -77,17 +80,23 @@ As credenciais Cloudinary são opcionais para iniciar a API. Sem elas, cadastro,
 
 ## Executando o projeto
 
+`npm run dev` seleciona explicitamente `development` e usa somente `MONGO_URI_DEVELOPMENT` do `.env`. O valor do URI existente deve ser preservado nessa variável. A configuração de produção nunca é usada pelo comando de desenvolvimento.
+
 Em desenvolvimento, com reinicialização automática:
 
 ```bash
 npm run dev
 ```
 
-Em modo normal:
+Para iniciar a API em produção:
 
 ```bash
 npm start
 ```
+
+`npm start` seleciona explicitamente `production` e exige `MONGO_URI_PRODUCTION`. Não há fallback para o URI de desenvolvimento. Configure a variável no ambiente do serviço de produção ou em um gerenciador de segredos, apontando para o cluster Atlas `PeNaTrilhaProducao`. O arquivo `.env.production.example` documenta o formato esperado; não versione um `.env.production` real. Se a variável de produção estiver ausente, o servidor encerra antes de conectar ao MongoDB.
+
+O banco de integração permanece independente: `npm run test:integration` carrega `.env.integration` e usa somente `TEST_MONGO_URI`, sem fallback para as variáveis de desenvolvimento ou produção.
 
 Por padrão, a API estará disponível em `http://localhost:3000`.
 
@@ -186,7 +195,7 @@ O token expira em 15 minutos. A API não armazena tokens; o cliente não deve pe
 
 Os testes de integração são opt-in e usam `npm run test:integration`; `npm test` continua executando a suíte padrão sem depender de MongoDB ou Cloudinary.
 
-Configure um MongoDB descartável com suporte a transações e uma conta Cloudinary dedicada a testes. Para MongoDB local, configure o servidor como replica set (o exemplo usa `replicaSet=rs0`). Copie `.env.integration.example` para `.env.integration` e preencha somente credenciais desses recursos de teste. O setup carrega explicitamente esse arquivo e nunca usa `.env`, `MONGO_URI` ou credenciais Cloudinary normais como fallback.
+Configure um MongoDB descartável com suporte a transações e uma conta Cloudinary dedicada a testes. Para MongoDB local, configure o servidor como replica set (o exemplo usa `replicaSet=rs0`). Copie `.env.integration.example` para `.env.integration` e preencha somente credenciais desses recursos de teste. O setup carrega explicitamente esse arquivo e nunca usa `.env`, `MONGO_URI_DEVELOPMENT`, `MONGO_URI_PRODUCTION` ou credenciais Cloudinary normais como fallback.
 
 São obrigatórias `TEST_ENVIRONMENT=integration`, `TEST_MONGO_URI`, `TEST_MONGO_ALLOWED_HOSTS` com uma lista explícita de hosts, e `TEST_CLOUDINARY_CLOUD_NAME`, `TEST_CLOUDINARY_API_KEY` e `TEST_CLOUDINARY_API_SECRET`. O URI deve apontar para um banco cujo nome contenha um segmento `test`, `testing`, `integration` ou `ci`; o host precisa corresponder exatamente a um item da allowlist. Para `mongodb+srv`, inclua na allowlist o host de seed e todos os destinos SRV. O setup valida duas respostas DNS SRV consecutivas e aborta antes da conexão se os destinos ou portas mudarem. Também valida os membros `hosts`, `passives` e `arbiters` anunciados pelo replica set antes de criar o marcador. No teardown, o model `OperacaoImagem` só é importado depois dessa validação, evitando a criação automática antecipada de índices. Topologias mongos são rejeitadas porque a resposta `hello` não enumera todos os membros internos dos shards.
 
@@ -250,8 +259,8 @@ Possíveis respostas incluem `400` para corpo, validação ou ID inválidos; `40
 
 | Comando | Descrição |
 | --- | --- |
-| `npm run dev` | Inicia a API em modo de desenvolvimento |
-| `npm start` | Inicia a API |
+| `npm run dev` | Inicia a API em modo de desenvolvimento e usa `MONGO_URI_DEVELOPMENT` |
+| `npm start` | Inicia a API em produção e exige `MONGO_URI_PRODUCTION` |
 | `npm test` | Executa os testes e gera o relatório de cobertura |
 | `npm run lint` | Verifica os arquivos de `src` com o ESLint |
 

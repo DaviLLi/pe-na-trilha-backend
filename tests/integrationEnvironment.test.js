@@ -1,5 +1,6 @@
 import {
   criarNomeBancoDaExecucao,
+  prepararAmbienteAplicacao,
   validarAmbienteIntegracao,
   validarBancoDaExecucao,
 } from "./integration/ambiente.js";
@@ -37,6 +38,21 @@ describe("validação da configuração da suíte de integração", () => {
       CLOUDINARY_API_KEY: "normal-key",
       CLOUDINARY_API_SECRET: "normal-secret",
     })).toThrow("A variável TEST_CLOUDINARY_CLOUD_NAME é obrigatória para a suíte de integração.");
+  });
+
+  test("remove URIs normais antes de preparar o processo dos testes de integração", () => {
+    const ambiente = {
+      MONGO_URI: "mongodb://legacy/db",
+      MONGO_URI_DEVELOPMENT: "mongodb://development/db",
+      MONGO_URI_PRODUCTION: "mongodb://production/db",
+    };
+    const config = validarAmbienteIntegracao(ambienteValido);
+
+    prepararAmbienteAplicacao(ambiente, config);
+
+    expect(ambiente).not.toHaveProperty("MONGO_URI");
+    expect(ambiente).not.toHaveProperty("MONGO_URI_DEVELOPMENT");
+    expect(ambiente).not.toHaveProperty("MONGO_URI_PRODUCTION");
   });
 
   test("exige banco com marcador de teste", () => {

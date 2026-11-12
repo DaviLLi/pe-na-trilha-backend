@@ -1,12 +1,37 @@
 import mongoose from "mongoose";
 
-export async function conectarBanco() {
-  const { MONGO_URI } = process.env;
+export function obterUriMongo(ambiente = process.env) {
+  const configuracaoPorAmbiente = {
+    development: {
+      variavel: "MONGO_URI_DEVELOPMENT",
+      descricao: "desenvolvimento",
+    },
+    production: {
+      variavel: "MONGO_URI_PRODUCTION",
+      descricao: "produção",
+    },
+  };
+  const configuracao = Object.hasOwn(configuracaoPorAmbiente, ambiente.NODE_ENV)
+    ? configuracaoPorAmbiente[ambiente.NODE_ENV]
+    : undefined;
 
-  if (!MONGO_URI) {
-    throw new Error("A variável de ambiente MONGO_URI não foi definida.");
+  if (!configuracao) {
+    throw new Error(
+      "NODE_ENV deve ser development ou production para conectar ao MongoDB.",
+    );
   }
 
-  await mongoose.connect(MONGO_URI);
+  const uri = ambiente[configuracao.variavel];
+  if (typeof uri !== "string" || !uri.trim()) {
+    throw new Error(
+      `A variável ${configuracao.variavel} não foi definida para ${configuracao.descricao}.`,
+    );
+  }
+
+  return uri;
+}
+
+export async function conectarBanco(ambiente = process.env) {
+  await mongoose.connect(obterUriMongo(ambiente));
   console.log("MongoDB conectado.");
 }

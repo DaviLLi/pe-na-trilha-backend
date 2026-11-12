@@ -121,6 +121,8 @@ export function criarNomeBancoDaExecucao(runId) {
 
 export function prepararAmbienteAplicacao(ambiente, config) {
   delete ambiente.MONGO_URI;
+  delete ambiente.MONGO_URI_DEVELOPMENT;
+  delete ambiente.MONGO_URI_PRODUCTION;
   delete ambiente.JWT_SECRET;
   delete ambiente.CLOUDINARY_CLOUD_NAME;
   delete ambiente.CLOUDINARY_API_KEY;

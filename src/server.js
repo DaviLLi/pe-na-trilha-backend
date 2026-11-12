@@ -1,6 +1,6 @@
-import "dotenv/config";
+import "./config/carregarAmbiente.js";
 import app from "./app.js";
-import { conectarBanco } from "./config/database.js";
+import { conectarBanco, obterUriMongo } from "./config/database.js";
 import { obterChaveJwt } from "./config/jwt.js";
 import mongoose from "mongoose";
 import {
@@ -14,6 +14,7 @@ let encerramento;
 
 async function iniciarServidor() {
   try {
+    obterUriMongo();
     obterChaveJwt();
     await conectarBanco();
     iniciarProcessadorOperacoesImagem();
