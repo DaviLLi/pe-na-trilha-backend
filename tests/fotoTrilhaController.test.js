@@ -9,6 +9,7 @@ jest.unstable_mockModule("../src/services/cloudinaryService.js", () => ({
   excluirImagem: jest.fn(),
 }));
 
+const metadados = { assetId: "asset-verificado", resourceType: "image", deliveryType: "authenticated", version: 1, format: "webp", width: 800, height: 600, bytes: 100, storageState: "ready" };
 const mongoose = (await import("mongoose")).default;
 const { default: Trilha } = await import("../src/models/Trilha.js");
 const { default: OperacaoImagem } = await import("../src/models/OperacaoImagem.js");
@@ -44,6 +45,7 @@ describe("controller de fotos da trilha", () => {
   test("adiciona foto com filtro atômico de proprietário e limite e conclui operação", async () => {
     const idFoto = new mongoose.Types.ObjectId();
     const foto = {
+      ...metadados,
       _id: idFoto,
       url: "https://res.cloudinary.com/demo/nova.webp",
       publicId: "pe-na-trilha/trilhas/t1/novo",
@@ -57,7 +59,7 @@ describe("controller de fotos da trilha", () => {
       .spyOn(OperacaoImagem, "updateOne")
       .mockResolvedValue({ modifiedCount: 1 });
     const adicionar = jest.spyOn(Trilha, "findOneAndUpdate").mockResolvedValue(trilha);
-    enviarImagem.mockResolvedValue({ secureUrl: foto.url, publicId: foto.publicId });
+    enviarImagem.mockResolvedValue({ ...metadados, publicId: foto.publicId });
 
     const req = {
       params: { id: "507f1f77bcf86cd799439011" },
@@ -88,10 +90,13 @@ describe("controller de fotos da trilha", () => {
       expect.objectContaining({ $set: expect.objectContaining({ estado: "completed" }) }),
       { session: sessao },
     );
+    expect(enviarImagem).toHaveBeenCalledWith(req.imagemValidada, expect.any(String), { deliveryType: "authenticated" });
+    expect(OperacaoImagem.create).toHaveBeenCalledWith(expect.objectContaining({ deliveryType: "authenticated", resourceType: "image" }));
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith({
       _id: idFoto,
-      url: foto.url,
+      url: `/trilhas/minhas/${req.params.id}/fotos/${idFoto}/conteudo`,
+      width: 800, height: 600, storageState: "ready",
       createdAt: foto.createdAt,
       updatedAt: foto.updatedAt,
     });
@@ -108,7 +113,7 @@ describe("controller de fotos da trilha", () => {
       session: jest.fn().mockResolvedValue({ _id: "trilha-1" }),
     });
     enviarImagem.mockResolvedValue({
-      secureUrl: "https://res.cloudinary.com/demo/nova.webp",
+      ...metadados,
       publicId: "pe-na-trilha/trilhas/t1/novo",
     });
 
@@ -167,7 +172,7 @@ describe("controller de fotos da trilha", () => {
     jest.spyOn(OperacaoImagem, "findOneAndUpdate").mockResolvedValue({ _id: "op-upload" });
     sessao.withTransaction.mockRejectedValue(new Error("falha transacional interna"));
     enviarImagem.mockResolvedValue({
-      secureUrl: "https://res.cloudinary.com/demo/nova.webp",
+      ...metadados,
       publicId: "pe-na-trilha/trilhas/t1/novo",
     });
     const next = jest.fn();
@@ -208,7 +213,7 @@ describe("controller de fotos da trilha", () => {
     jest.spyOn(OperacaoImagem, "updateOne").mockResolvedValue({ modifiedCount: 1 });
     jest.spyOn(Trilha, "findOne").mockReturnValue({ session: jest.fn().mockResolvedValue(trilha) });
     enviarImagem.mockResolvedValue({
-      secureUrl: "https://res.cloudinary.com/demo/nova.webp",
+      ...metadados,
       publicId: "pe-na-trilha/trilhas/t1/nova",
     });
 
@@ -224,12 +229,13 @@ describe("controller de fotos da trilha", () => {
     );
 
     expect(foto._id.toString()).toBe("507f1f77bcf86cd799439013");
-    expect(foto.url).toBe("https://res.cloudinary.com/demo/nova.webp");
+    expect(foto.url).toBeUndefined();
+    expect(foto.deliveryType).toBe("authenticated");
     expect(foto.publicId).toBe("pe-na-trilha/trilhas/t1/nova");
     expect(trilha.save).toHaveBeenCalledWith({ session: sessao });
     expect(OperacaoImagem.create).toHaveBeenNthCalledWith(
       2,
-      [{ publicId: "pe-na-trilha/trilhas/t1/antiga", estado: "cleanup_pending", nextAttemptAt: expect.any(Date) }],
+      [{ publicId: "pe-na-trilha/trilhas/t1/antiga", resourceType: "image", deliveryType: "upload", estado: "cleanup_pending", nextAttemptAt: expect.any(Date) }],
       { session: sessao },
     );
     expect(res.status).toHaveBeenCalledWith(200);
@@ -259,7 +265,7 @@ describe("controller de fotos da trilha", () => {
     expect(trilha.fotos.pull).toHaveBeenCalledWith({ _id: "507f1f77bcf86cd799439013" });
     expect(trilha.save).toHaveBeenCalledWith({ session: sessao });
     expect(agendar).toHaveBeenCalledWith(
-      [{ publicId: foto.publicId, estado: "cleanup_pending", nextAttemptAt: expect.any(Date) }],
+      [{ publicId: foto.publicId, resourceType: "image", deliveryType: "upload", estado: "cleanup_pending", nextAttemptAt: expect.any(Date) }],
       { session: sessao },
     );
     expect(res.status).toHaveBeenCalledWith(204);

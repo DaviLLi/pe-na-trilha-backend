@@ -82,3 +82,17 @@ test("schema rejeita status, opções e duração inválidos", async () => {
     status: expect.anything(), dificuldade: expect.anything(), duracao: expect.anything(),
   } });
 });
+
+test("serialização nunca expõe URL Cloudinary legada nem identidade protegida", () => {
+  const trilha = new Trilha({
+    fotos: [{ url: "https://res.cloudinary.com/publica.jpg", publicId: "legado" }, {
+      publicId: "protegido", assetId: "asset", resourceType: "image", deliveryType: "authenticated",
+      version: 1, format: "webp", width: 800, height: 600, bytes: 100, storageState: "ready",
+    }],
+  });
+  const dados = trilha.toJSON();
+  expect(dados.fotos[0].url).toBeNull();
+  expect(dados.fotos[0].storageState).toBe("legacy_public");
+  expect(dados.fotos[1].url).toContain(`/trilhas/${trilha._id}/fotos/`);
+  expect(JSON.stringify(dados)).not.toMatch(/cloudinary|publicId|assetId|deliveryType/);
+});

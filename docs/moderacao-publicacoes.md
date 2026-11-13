@@ -60,8 +60,9 @@ ou fotos até definição e execução de migração aprovada. Defaults do Mongo
 substituem uma migração de documentos persistidos. A migração real precisa de
 aprovação separada, inclusive a classificação das publicações antigas.
 
-Cloudinary continua usando URLs públicas; excluir pendentes do feed não torna os
-assets privados. Não houve migração de imagens. O frontend deve usar as consultas
+Novas fotos usam armazenamento autenticado e entrega autorizada pelo backend; veja
+[fotos privadas](fotos-privadas.md). Fotos antigas públicas não foram migradas e suas
+URLs externas não são revogadas por ocultação no feed. O frontend deve usar as consultas
 privadas para editar suas pendentes/rejeitadas e ligar o botão explícito de reenvio
 ao endpoint acima.
 

@@ -197,6 +197,10 @@ Trilhas e fotos de trilha são públicas para leitura. Somente o proprietário p
 
 ### Upload de imagens
 
+Fotos de publicações agora usam armazenamento autenticado e URLs internas. Consulte
+[o contrato de fotos privadas](docs/fotos-privadas.md) para entrega, permissões e
+limitações dos assets legados. Fotos de perfil preservam seu comportamento anterior.
+
 Fotos de perfil e de trilhas aceitam JPEG, PNG ou WebP, com limite de 5 MiB por arquivo e um arquivo por requisição. Envie o arquivo no campo multipart `imagem`; não envie URL, public ID ou proprietário. O formato é conferido pela assinatura do arquivo. O armazenamento multipart usa memória, portanto uploads simultâneos podem exigir limites adicionais de concorrência ou taxa no gateway. A substituição e remoção registram a limpeza remota em operações persistidas, com tentativas automáticas e recuperação por lease. Operações que esgotam tentativas permanecem registradas para reenvio operacional.
 
 Exemplos de upload:
@@ -321,3 +325,12 @@ Para verificar o padrão do código:
 ```bash
 npm run lint
 ```
+
+### Sessões obrigatórias em rotas protegidas
+
+Tanto cookie quanto Bearer exigem access JWT com `sid` de sessão ativa, não revogada
+e não expirada, vinculada ao usuário. JWTs legados sem `sid` recebem 401. Login e
+refresh atuais já emitem esse claim; não há migração de dados. Clientes antigos
+precisam renovar a sessão por refresh válido ou realizar login novamente. Logout
+revoga a sessão e invalida novas requisições com seus access tokens. As permissões
+de proprietário/admin e a proteção CSRF por cookie permanecem aplicadas.

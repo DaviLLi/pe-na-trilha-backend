@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { apresentarTrilha, identidadeLimpeza } from "../domain/fotoPublicacao.js";
 import { CAMPOS_BASICOS, CARACTERISTICAS, STATUS_EDITAVEIS } from "../domain/publicacao.js";
 import OperacaoImagem from "../models/OperacaoImagem.js";
 import Trilha from "../models/Trilha.js";
@@ -6,7 +7,7 @@ import Trilha from "../models/Trilha.js";
 export async function listarTrilhas(_req, res, next) {
   try {
     const trilhas = await Trilha.find({ status: "approved" }).sort({ createdAt: -1 });
-    res.status(200).json(trilhas);
+    res.status(200).json(trilhas.map((trilha) => apresentarTrilha(trilha)));
   } catch (erro) {
     next(erro);
   }
@@ -20,7 +21,7 @@ export async function buscarTrilha(req, res, next) {
       return res.status(404).json({ mensagem: "Trilha não encontrada." });
     }
 
-    return res.status(200).json(trilha);
+    return res.status(200).json(apresentarTrilha(trilha));
   } catch (erro) {
     return next(erro);
   }
@@ -36,7 +37,7 @@ export async function criarTrilha(req, res, next) {
       status: "pending",
       proprietario: req.usuario._id,
     });
-    res.status(201).json(trilha);
+    res.status(201).json(apresentarTrilha(trilha, "autor"));
   } catch (erro) {
     next(erro);
   }
@@ -69,7 +70,7 @@ export async function atualizarTrilha(req, res, next) {
     );
     if (!trilha) return res.status(409).json({ mensagem: "Publicação alterada durante a edição. Recarregue e tente novamente." });
 
-    return res.status(200).json(trilha);
+    return res.status(200).json(apresentarTrilha(trilha, "autor"));
   } catch (erro) {
     return next(erro);
   }
@@ -90,14 +91,12 @@ export async function excluirTrilha(req, res, next) {
         throw erro;
       }
 
-      const publicIds = (trilha.fotos || [])
-        .map((foto) => foto.publicId)
-        .filter(Boolean);
+      const fotos = (trilha.fotos || []).filter((foto) => foto.publicId);
 
-      if (publicIds.length) {
+      if (fotos.length) {
         await OperacaoImagem.create(
-          publicIds.map((publicId) => ({
-            publicId,
+          fotos.map((foto) => ({
+            ...identidadeLimpeza(foto),
             estado: "cleanup_pending",
             nextAttemptAt: new Date(),
           })),
@@ -129,13 +128,14 @@ export async function reenviarTrilha(req, res, next) {
       const existe = await Trilha.exists({ _id: req.params.id, proprietario: req.usuario._id });
       return res.status(existe ? 409 : 404).json({ mensagem: existe ? "Somente publicações rejeitadas podem ser reenviadas." : "Trilha não encontrada." });
     }
-    return res.status(200).json(trilha);
+    return res.status(200).json(apresentarTrilha(trilha, "autor"));
   } catch (erro) { return next(erro); }
 }
 
 export async function listarMinhasTrilhas(req, res, next) {
   try {
-    return res.json(await Trilha.find({ proprietario: req.usuario._id }).sort({ createdAt: -1 }));
+    const trilhas = await Trilha.find({ proprietario: req.usuario._id }).sort({ createdAt: -1 });
+    return res.json(trilhas.map((trilha) => apresentarTrilha(trilha, "autor")));
   } catch (erro) { return next(erro); }
 }
 
@@ -154,12 +154,15 @@ export async function moderarTrilha(req, res, next) {
       { returnDocument: "after", runValidators: true },
     );
     if (!trilha) return res.status(409).json({ mensagem: "Publicação inexistente ou não está pendente." });
-    return res.json(trilha);
+    return res.json(apresentarTrilha(trilha, "admin"));
   } catch (erro) { return next(erro); }
 }
 
 export async function listarPendentes(_req, res, next) {
-  try { return res.json(await Trilha.find({ status: "pending" }).sort({ createdAt: 1 })); }
+  try {
+    const trilhas = await Trilha.find({ status: "pending" }).sort({ createdAt: 1 });
+    return res.json(trilhas.map((trilha) => apresentarTrilha(trilha, "admin")));
+  }
   catch (erro) { return next(erro); }
 }
 
@@ -167,6 +170,6 @@ export async function buscarMinhaTrilha(req, res, next) {
   try {
     const trilha = await Trilha.findOne({ _id: req.params.id, proprietario: req.usuario._id });
     if (!trilha) return res.status(404).json({ mensagem: "Trilha não encontrada." });
-    return res.json(trilha);
+    return res.json(apresentarTrilha(trilha, "autor"));
   } catch (erro) { return next(erro); }
 }

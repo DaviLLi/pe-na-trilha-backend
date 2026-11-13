@@ -7,6 +7,9 @@ const LEASE_PROCESSAMENTO_MS = 3 * 60 * 1000;
 const CARÊNCIA_UPLOAD_MS = 10 * 60 * 1000;
 const MAX_TENTATIVAS = 8;
 const INTERVALO_MS = 15000;
+const CONCORRENCIA = 3;
+const MAX_OPERACOES_POR_CICLO = 30;
+const HEARTBEAT_MS = 30_000;
 let timer;
 let executando = false;
 let cicloAtivo;
@@ -85,15 +88,39 @@ export async function processarUmaOperacao(agora = new Date()) {
         },
       },
     },
-    { returnDocument: "after" },
+    { returnDocument: "after", sort: { nextAttemptAt: 1 } },
   );
 
   if (!operacao) {
     return false;
   }
 
+  const filtroLease = { _id: operacao._id, estado: "processing", processingLeaseToken: token };
+  let leasePerdido = false;
+  let renovacaoAtiva;
+  async function renovarLease() {
+    const agoraRenovacao = new Date();
+    const resultado = await OperacaoImagem.updateOne(
+      { ...filtroLease, processingLeaseUntil: { $gt: agoraRenovacao } },
+      { $set: { processingLeaseUntil: new Date(agoraRenovacao.getTime() + LEASE_PROCESSAMENTO_MS) } },
+    );
+    if (resultado.matchedCount !== 1) leasePerdido = true;
+  }
+  const heartbeat = setInterval(() => {
+    if (renovacaoAtiva || leasePerdido) return;
+    renovacaoAtiva = renovarLease().catch(() => {
+      // Sem confirmação do banco não se presume propriedade do lease.
+      leasePerdido = true;
+    }).finally(() => { renovacaoAtiva = undefined; });
+  }, HEARTBEAT_MS);
+  heartbeat.unref?.();
+
   try {
-    await excluirImagem(operacao.publicId);
+    // Revalida antes da chamada externa, inclusive se o claim demorou a retornar.
+    await renovarLease();
+    if (leasePerdido) return true;
+    await excluirImagem(operacao.publicId, { resourceType: operacao.resourceType || "image", deliveryType: operacao.deliveryType || "upload" });
+    if (leasePerdido) return true;
     await OperacaoImagem.updateOne(
       { _id: operacao._id, estado: "processing", processingLeaseToken: token },
       {
@@ -102,6 +129,7 @@ export async function processarUmaOperacao(agora = new Date()) {
       },
     );
   } catch {
+    if (leasePerdido) return true;
     const encerrada = operacao.tentativas >= MAX_TENTATIVAS;
     const ocorridoEm = new Date();
     const mensagem = "Falha ao excluir imagem no serviço remoto.";
@@ -124,6 +152,9 @@ export async function processarUmaOperacao(agora = new Date()) {
         $unset: { processingLeaseToken: 1, processingLeaseUntil: 1 },
       },
     );
+  } finally {
+    clearInterval(heartbeat);
+    await renovacaoAtiva;
   }
 
   return true;
@@ -144,6 +175,30 @@ export async function reenfileirarOperacaoImagem(id) {
   );
 }
 
+// Cada faixa busca a próxima operação assim que termina a atual, sem esperar
+// pelas demais. O orçamento limita o total de claims por ciclo.
+export async function processarLoteOperacoesImagem() {
+  let reivindicacoes = 0;
+  let processadas = 0;
+  let filaVazia = false;
+  await Promise.all(Array.from({ length: CONCORRENCIA }, async () => {
+    while (!encerrando && !filaVazia && reivindicacoes < MAX_OPERACOES_POR_CICLO) {
+      reivindicacoes++;
+      try {
+        const processou = await processarUmaOperacao();
+        if (!processou) { filaVazia = true; return; }
+        processadas++;
+      } catch {
+        // Se houve claim, seu lease garante recuperação. Encerra esta faixa para
+        // não bombardear o banco em caso de indisponibilidade.
+        console.error("Falha ao processar operação de imagem; recuperação pelo lease.");
+        return;
+      }
+    }
+  }));
+  return processadas;
+}
+
 function ciclo() {
   if (encerrando || executando) {
     return cicloAtivo;
@@ -154,7 +209,7 @@ function ciclo() {
     try {
       if (cloudinaryDisponivel()) {
         await recuperarOperacoesExpiradas();
-        await processarUmaOperacao();
+        if (!encerrando) await processarLoteOperacoesImagem();
       }
     } catch (erro) {
       console.error("Falha no processador de operações de imagem:", erro.message);

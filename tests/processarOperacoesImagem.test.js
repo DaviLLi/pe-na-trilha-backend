@@ -41,7 +41,7 @@ describe("processador de operações de imagem", () => {
   test("só reivindica cleanup_pending e conclui com token de lease", async () => {
     const operacao = { _id: "op1", publicId: "server/asset", tentativas: 0 };
     jest.spyOn(OperacaoImagem, "findOneAndUpdate").mockResolvedValue(operacao);
-    const atualizar = jest.spyOn(OperacaoImagem, "updateOne").mockResolvedValue({ modifiedCount: 1 });
+    const atualizar = jest.spyOn(OperacaoImagem, "updateOne").mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
     excluirImagem.mockResolvedValue(undefined);
 
     await expect(processarUmaOperacao(new Date("2026-01-01T00:00:00Z"))).resolves.toBe(true);
@@ -49,9 +49,9 @@ describe("processador de operações de imagem", () => {
     expect(OperacaoImagem.findOneAndUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ estado: "cleanup_pending" }),
       expect.objectContaining({ $set: expect.objectContaining({ estado: "processing" }) }),
-      { returnDocument: "after" },
+      { returnDocument: "after", sort: { nextAttemptAt: 1 } },
     );
-    expect(excluirImagem).toHaveBeenCalledWith("server/asset");
+    expect(excluirImagem).toHaveBeenCalledWith("server/asset", { resourceType: "image", deliveryType: "upload" });
     expect(atualizar).toHaveBeenCalledWith(
       expect.objectContaining({ _id: "op1", estado: "processing" }),
       expect.objectContaining({ $set: expect.objectContaining({ estado: "completed" }) }),
@@ -70,7 +70,7 @@ describe("processador de operações de imagem", () => {
       .spyOn(OperacaoImagem, "findOneAndUpdate")
       .mockResolvedValueOnce(operacao)
       .mockResolvedValueOnce(null);
-    jest.spyOn(OperacaoImagem, "updateOne").mockResolvedValue({ modifiedCount: 1 });
+    jest.spyOn(OperacaoImagem, "updateOne").mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
     excluirImagem.mockResolvedValue(undefined);
 
     await expect(Promise.all([processarUmaOperacao(), processarUmaOperacao()])).resolves.toEqual([
@@ -88,7 +88,7 @@ describe("processador de operações de imagem", () => {
       publicId: "server/asset",
       tentativas: 8,
     });
-    const atualizar = jest.spyOn(OperacaoImagem, "updateOne").mockResolvedValue({ modifiedCount: 1 });
+    const atualizar = jest.spyOn(OperacaoImagem, "updateOne").mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
     excluirImagem.mockRejectedValue(new Error("detalhe remoto confidencial"));
 
     await processarUmaOperacao();
@@ -104,7 +104,7 @@ describe("processador de operações de imagem", () => {
   });
 
   test("recupera leases expirados de upload e processamento para cleanup_pending", async () => {
-    const atualizar = jest.spyOn(OperacaoImagem, "updateMany").mockResolvedValue({ modifiedCount: 1 });
+    const atualizar = jest.spyOn(OperacaoImagem, "updateMany").mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
     const agora = new Date("2026-01-01T00:00:00Z");
 
     await recuperarOperacoesExpiradas(agora);
@@ -144,7 +144,7 @@ describe("processador de operações de imagem", () => {
     jest
       .spyOn(OperacaoImagem, "updateMany")
       .mockReturnValueOnce(recuperacaoPendente)
-      .mockResolvedValue({ modifiedCount: 0 });
+      .mockResolvedValue({ matchedCount: 0, modifiedCount: 0 });
     jest.spyOn(OperacaoImagem, "findOneAndUpdate").mockResolvedValue(null);
 
     iniciarProcessadorOperacoesImagem();
@@ -158,10 +158,26 @@ describe("processador de operações de imagem", () => {
     expect(jest.getTimerCount()).toBe(0);
     expect(finalizado).toBe(false);
 
-    liberarRecuperacao({ modifiedCount: 0 });
+    liberarRecuperacao({ matchedCount: 0, modifiedCount: 0 });
     await Promise.all([parada, chamadaRepetida]);
     expect(finalizado).toBe(true);
     expect(excluirImagem).not.toHaveBeenCalled();
     jest.useRealTimers();
   });
+});
+
+test("identidade autenticada é preservada entre operação e exclusão remota", async () => {
+  const nomes = ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"];
+  const anterior = nomes.map((nome) => process.env[nome]);
+  nomes.forEach((nome) => { process.env[nome] = "teste"; });
+  try {
+    jest.spyOn(OperacaoImagem, "findOneAndUpdate").mockResolvedValue({ _id: "op-auth", publicId: "foto", resourceType: "image", deliveryType: "authenticated", tentativas: 1 });
+    jest.spyOn(OperacaoImagem, "updateOne").mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+    excluirImagem.mockResolvedValue(undefined);
+    await processarUmaOperacao();
+    expect(excluirImagem).toHaveBeenLastCalledWith("foto", { resourceType: "image", deliveryType: "authenticated" });
+  } finally {
+    jest.restoreAllMocks();
+    nomes.forEach((nome, i) => { if (anterior[i] === undefined) delete process.env[nome]; else process.env[nome] = anterior[i]; });
+  }
 });

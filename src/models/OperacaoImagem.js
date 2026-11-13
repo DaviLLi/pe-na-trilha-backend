@@ -3,6 +3,8 @@ import mongoose from "mongoose";
 const operacaoImagemSchema = new mongoose.Schema(
   {
     publicId: { type: String, required: true, trim: true },
+    resourceType: { type: String, enum: ["image"], default: "image" },
+    deliveryType: { type: String, enum: ["upload", "authenticated", "private"], default: "upload" },
     estado: {
       type: String,
       enum: ["uploading", "cleanup_pending", "processing", "completed", "failed"],

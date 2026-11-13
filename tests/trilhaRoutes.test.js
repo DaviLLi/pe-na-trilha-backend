@@ -1,3 +1,4 @@
+import AuthSession from "../src/models/AuthSession.js";
 import { jest } from "@jest/globals";
 import { randomBytes } from "node:crypto";
 import { SignJWT } from "jose";
@@ -16,7 +17,7 @@ const idOutroUsuario = "507f191e810c19729de860ea";
 const idTrilha = "507f1f77bcf86cd799439012";
 
 async function criarToken(idUsuario) {
-  return new SignJWT({})
+  return new SignJWT({ sid: "507f1f77bcf86cd799439099" })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(idUsuario)
     .setIssuedAt()
@@ -90,7 +91,7 @@ describe("rotas de trilhas", () => {
   });
 
   test("mantém GET público restrito a aprovadas", async () => {
-    const trilhas = [{ _id: idTrilha, titulo: "Trilha antiga" }];
+    const trilhas = [{ _id: idTrilha, titulo: "Trilha antiga", fotos: [] }];
     const ordenar = jest.fn().mockResolvedValue(trilhas);
     jest.spyOn(Trilha, "find").mockReturnValue({ sort: ordenar });
     const buscar = jest.spyOn(Trilha, "findOne").mockResolvedValue(trilhas[0]);
@@ -200,8 +201,8 @@ describe("rotas de trilhas", () => {
     expect(resposta.status).toBe(204);
     expect(agendar).toHaveBeenCalledWith(
       [
-        { publicId: "trilhas/a", estado: "cleanup_pending", nextAttemptAt: expect.any(Date) },
-        { publicId: "trilhas/b", estado: "cleanup_pending", nextAttemptAt: expect.any(Date) },
+        { publicId: "trilhas/a", resourceType: "image", deliveryType: "upload", estado: "cleanup_pending", nextAttemptAt: expect.any(Date) },
+        { publicId: "trilhas/b", resourceType: "image", deliveryType: "upload", estado: "cleanup_pending", nextAttemptAt: expect.any(Date) },
       ],
       { session: sessao },
     );
@@ -225,4 +226,8 @@ describe("rotas de trilhas", () => {
     });
     expect(criarOperacao).not.toHaveBeenCalled();
   });
+});
+
+beforeEach(() => {
+  jest.spyOn(AuthSession, "findOne").mockResolvedValue({ _id: "507f1f77bcf86cd799439099" });
 });

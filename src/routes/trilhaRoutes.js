@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { entregarFoto } from "../controllers/entregaFotoController.js";
 import {
   atualizarTrilha,
   reenviarTrilha, listarMinhasTrilhas, buscarMinhaTrilha, moderarTrilha, listarPendentes,
@@ -24,6 +25,8 @@ import {
 
 const router = Router();
 
+router.get("/:id/fotos/:fotoId/conteudo", entregarFoto("publico"));
+router.get("/minhas/:id/fotos/:fotoId/conteudo", autenticarToken, entregarFoto("autor"));
 router.get("/", listarTrilhas);
 router.get("/minhas", autenticarToken, listarMinhasTrilhas);
 router.get("/minhas/:id", autenticarToken, buscarMinhaTrilha);

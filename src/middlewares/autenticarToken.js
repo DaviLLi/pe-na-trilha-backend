@@ -45,28 +45,24 @@ export async function autenticarToken(req, res, next) {
     return responderNaoAutenticado(res, Boolean(tokenCookie));
   }
 
-  let authSession = null;
-  if (payload.sid !== undefined) {
-    if (typeof payload.sid !== "string" || !mongoose.isValidObjectId(payload.sid)) {
-      return responderNaoAutenticado(res, Boolean(tokenCookie));
-    }
+  if (typeof payload.sid !== "string" || !mongoose.isValidObjectId(payload.sid)) {
+    return responderNaoAutenticado(res, Boolean(tokenCookie));
+  }
 
-    try {
-      authSession = await AuthSession.findOne({
-        _id: payload.sid,
-        user: payload.sub,
-        revokedAt: null,
-        expiresAt: { $gt: new Date() },
-      });
-    } catch (erro) {
-      return next(erro);
-    }
+  let authSession;
+  try {
+    authSession = await AuthSession.findOne({
+      _id: payload.sid,
+      user: payload.sub,
+      revokedAt: null,
+      expiresAt: { $gt: new Date() },
+    });
+  } catch (erro) {
+    return next(erro);
+  }
 
-    if (!authSession) {
-      return responderNaoAutenticado(res, Boolean(tokenCookie));
-    }
-  } else if (tokenCookie) {
-    return responderNaoAutenticado(res, true);
+  if (!authSession) {
+    return responderNaoAutenticado(res, Boolean(tokenCookie));
   }
 
   try {

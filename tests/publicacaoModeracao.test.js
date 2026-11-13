@@ -1,3 +1,4 @@
+import AuthSession from "../src/models/AuthSession.js";
 import { jest } from "@jest/globals";
 import { randomBytes } from "node:crypto";
 import { SignJWT } from "jose";
@@ -18,7 +19,7 @@ let atualizar;
 beforeAll(async () => {
   segredoAnterior = process.env.JWT_SECRET;
   process.env.JWT_SECRET = randomBytes(32).toString("base64");
-  token = await new SignJWT({}).setProtectedHeader({ alg: "HS256" }).setSubject(autor)
+  token = await new SignJWT({ sid: "507f1f77bcf86cd799439099" }).setProtectedHeader({ alg: "HS256" }).setSubject(autor)
     .setIssuedAt().setExpirationTime("15m").sign(new TextEncoder().encode(process.env.JWT_SECRET));
 });
 afterAll(() => {
@@ -26,6 +27,7 @@ afterAll(() => {
   else process.env.JWT_SECRET = segredoAnterior;
 });
 beforeEach(() => {
+  jest.spyOn(AuthSession, "findOne").mockResolvedValue({ _id: "507f1f77bcf86cd799439099" });
   registro = { _id: id, proprietario: autor, status: "approved", titulo: "Original", descricao: "Original", endereco: "Original", updatedAt: new Date(), historicoModeracao: [] };
   jest.spyOn(Usuario, "findById").mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: autor, perfil: "user" }) });
   jest.spyOn(Trilha, "findOne").mockImplementation(async (filtro) => filtro.proprietario && filtro.proprietario !== registro.proprietario ? null : registro);

@@ -62,6 +62,9 @@ export async function registrarAssetDaExecucao(db, runId, publicId) {
       $setOnInsert: {
         runId: runIdAtivo,
         publicId,
+        ...(operacaoImagem.deliveryType && operacaoImagem.deliveryType !== "upload"
+          ? { deliveryType: operacaoImagem.deliveryType, resourceType: operacaoImagem.resourceType || "image" }
+          : {}),
         estado: "pending",
         createdAt: new Date(),
       },
@@ -89,6 +92,10 @@ export function validarRegistrosAssets(registros, runId) {
   }
   for (const registro of registros) {
     validarPublicIdDaExecucao(registro.publicId);
+    if ((registro.deliveryType !== undefined && !["upload", "authenticated", "private"].includes(registro.deliveryType))
+      || (registro.resourceType !== undefined && registro.resourceType !== "image")) {
+      throw new Error("O registro contém uma identidade de asset inválida.");
+    }
     if (!["pending", "deleted"].includes(registro.estado)) {
       throw new Error("O registro de assets contém um estado inválido.");
     }
@@ -110,7 +117,11 @@ export async function limparAssetsRegistrados(db, runId, excluirImagem) {
   for (const registro of registros) {
     if (registro.estado === "deleted") continue;
 
-    await excluirImagem(registro.publicId);
+    if (registro.deliveryType) {
+      await excluirImagem(registro.publicId, { resourceType: registro.resourceType || "image", deliveryType: registro.deliveryType });
+    } else {
+      await excluirImagem(registro.publicId);
+    }
     const resultado = await colecao.updateOne(
       { _id: registro._id, runId, publicId: registro.publicId, estado: "pending" },
       { $set: { estado: "deleted", deletedAt: new Date() } },

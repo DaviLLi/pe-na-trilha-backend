@@ -1,19 +1,26 @@
 import mongoose from "mongoose";
+import { apresentarFoto } from "../domain/fotoPublicacao.js";
 import { OPCOES, CARACTERISTICAS, duracaoValida } from "../domain/publicacao.js";
 
 const fotoTrilhaSchema = new mongoose.Schema(
   {
-    url: { type: String, required: true, trim: true },
+    url: { type: String, trim: true, select: false },
+    assetId: { type: String },
+    resourceType: { type: String, enum: ["image"] },
+    deliveryType: { type: String, enum: ["upload", "authenticated", "private"] },
+    version: { type: Number },
+    format: { type: String },
+    width: { type: Number },
+    height: { type: Number },
+    bytes: { type: Number },
+    storageState: { type: String, enum: ["ready", "legacy_public", "migration_pending", "blocked"], default: "legacy_public" },
     publicId: { type: String, required: true, trim: true },
   },
   { timestamps: true, versionKey: false },
 );
 
 function serializarTrilha(_doc, ret) {
-  ret.fotos = Array.isArray(ret.fotos) ? ret.fotos : [];
-  for (const foto of ret.fotos) {
-    delete foto.publicId;
-  }
+  ret.fotos = (ret.fotos || []).map((foto) => apresentarFoto(foto, ret._id));
   return ret;
 }
 

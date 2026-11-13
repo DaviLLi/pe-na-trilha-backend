@@ -1,3 +1,4 @@
+import AuthSession from "../src/models/AuthSession.js";
 import express from "express";
 import { jest } from "@jest/globals";
 import { randomBytes } from "node:crypto";
@@ -117,7 +118,7 @@ describe("upload de foto de perfil", () => {
     };
     const select = jest.fn().mockResolvedValue(usuario);
     const buscar = jest.spyOn(Usuario, "findById").mockReturnValue({ select });
-    const token = await new SignJWT({})
+    const token = await new SignJWT({ sid: "507f1f77bcf86cd799439099" })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setSubject(usuario._id)
       .setIssuedAt()
@@ -147,3 +148,8 @@ describe("upload de foto de perfil", () => {
     }
   });
 });
+
+beforeEach(() => {
+  jest.spyOn(AuthSession, "findOne").mockResolvedValue({ _id: "507f1f77bcf86cd799439099" });
+});
+afterEach(() => jest.restoreAllMocks());
