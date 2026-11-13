@@ -1,0 +1,194 @@
+{
+  "synthetic": true,
+  "schemaVersion": "1",
+  "publications": [
+    {
+      "_id": "000000000000000000000001",
+      "proprietario": "synthetic-owner-A",
+      "status": "approved",
+      "fotos": [
+        {
+          "resourceType": "image",
+          "version": 1,
+          "format": "webp",
+          "width": 800,
+          "height": 600,
+          "bytes": 123,
+          "_id": "000000000000000000000065",
+          "assetId": "synthetic-asset-101",
+          "publicId": "pe-na-trilha/trilhas/synthetic/foto-101",
+          "deliveryType": "authenticated",
+          "storageState": "ready"
+        }
+      ]
+    },
+    {
+      "_id": "000000000000000000000002",
+      "proprietario": "synthetic-owner-A",
+      "status": "pending",
+      "fotos": [
+        {
+          "resourceType": "image",
+          "version": 1,
+          "format": "webp",
+          "width": 800,
+          "height": 600,
+          "bytes": 123,
+          "_id": "000000000000000000000066",
+          "assetId": "synthetic-asset-102",
+          "publicId": "pe-na-trilha/trilhas/synthetic/foto-102",
+          "deliveryType": "upload",
+          "storageState": "legacy_public"
+        }
+      ]
+    },
+    {
+      "_id": "000000000000000000000003",
+      "proprietario": "synthetic-owner-B",
+      "status": "rejected",
+      "fotos": [
+        {
+          "resourceType": "image",
+          "version": 1,
+          "format": "webp",
+          "width": 800,
+          "height": 600,
+          "bytes": 123,
+          "_id": "000000000000000000000067",
+          "assetId": "synthetic-asset-103",
+          "publicId": "pe-na-trilha/trilhas/synthetic/foto-103",
+          "deliveryType": "upload",
+          "storageState": "legacy_public"
+        },
+        {
+          "resourceType": "image",
+          "version": 1,
+          "format": "webp",
+          "width": 800,
+          "height": 600,
+          "bytes": 123,
+          "_id": "000000000000000000000068",
+          "assetId": "synthetic-asset-104",
+          "publicId": "pe-na-trilha/trilhas/synthetic/foto-104",
+          "deliveryType": "upload",
+          "storageState": "legacy_public"
+        }
+      ]
+    },
+    {
+      "_id": "000000000000000000000004",
+      "proprietario": "synthetic-owner-B",
+      "fotos": [
+        {
+          "resourceType": "image",
+          "version": 1,
+          "format": "webp",
+          "width": 800,
+          "height": 600,
+          "bytes": 123,
+          "_id": "000000000000000000000069",
+          "assetId": "synthetic-asset-104",
+          "publicId": "pe-na-trilha/trilhas/synthetic/foto-104",
+          "deliveryType": "upload",
+          "storageState": "legacy_public"
+        },
+        {
+          "url": "https://user:synthetic-password@external.invalid/personal-name.jpg?signature=synthetic-secret#token"
+        }
+      ]
+    },
+    {
+      "_id": "000000000000000000000005",
+      "status": null,
+      "fotos": [
+        {
+          "_id": null,
+          "publicId": "",
+          "deliveryType": 42
+        },
+        null
+      ]
+    },
+    {
+      "_id": "000000000000000000000006",
+      "status": "invalid-status-secret",
+      "fotos": []
+    }
+  ],
+  "users": [
+    {
+      "_id": "synthetic-owner-A",
+      "email": "private@example.invalid"
+    },
+    {
+      "_id": "synthetic-owner-B",
+      "fotoPerfilPublicId": "pe-na-trilha/trilhas/synthetic/foto-103"
+    }
+  ],
+  "operations": [
+    {
+      "_id": "operation-pending",
+      "publicId": "pe-na-trilha/trilhas/synthetic/foto-104",
+      "estado": "cleanup_pending"
+    },
+    {
+      "_id": "operation-failed",
+      "publicId": "pe-na-trilha/trilhas/synthetic/foto-103",
+      "estado": "failed"
+    }
+  ],
+  "assets": [
+    {
+      "resourceType": "image",
+      "version": 1,
+      "format": "webp",
+      "width": 800,
+      "height": 600,
+      "bytes": 123,
+      "_id": "000000000000000000000065",
+      "assetId": "synthetic-asset-101",
+      "publicId": "pe-na-trilha/trilhas/synthetic/foto-101",
+      "deliveryType": "authenticated",
+      "storageState": "ready"
+    },
+    {
+      "resourceType": "image",
+      "version": 1,
+      "format": "webp",
+      "width": 800,
+      "height": 600,
+      "bytes": 123,
+      "_id": "000000000000000000000066",
+      "assetId": "synthetic-asset-102",
+      "publicId": "pe-na-trilha/trilhas/synthetic/foto-102",
+      "deliveryType": "upload",
+      "storageState": "legacy_public"
+    },
+    {
+      "resourceType": "image",
+      "version": 1,
+      "format": "webp",
+      "width": 800,
+      "height": 600,
+      "bytes": 123,
+      "_id": "000000000000000000000067",
+      "assetId": "synthetic-asset-103",
+      "publicId": "pe-na-trilha/trilhas/synthetic/foto-103",
+      "deliveryType": "upload",
+      "storageState": "legacy_public"
+    },
+    {
+      "resourceType": "image",
+      "version": 1,
+      "format": "webp",
+      "width": 800,
+      "height": 600,
+      "bytes": 123,
+      "_id": "000000000000000000000068",
+      "assetId": "synthetic-asset-104",
+      "publicId": "pe-na-trilha/trilhas/synthetic/foto-104",
+      "deliveryType": "upload",
+      "storageState": "legacy_public"
+    }
+  ]
+}

@@ -1,0 +1,1130 @@
+{
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "enum": [
+        "3"
+      ]
+    },
+    "mechanismVersion": {
+      "type": "string"
+    },
+    "criteriaVersion": {
+      "type": "string",
+      "enum": [
+        "3"
+      ]
+    },
+    "run": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "startedAt": {
+          "type": "string"
+        },
+        "finishedAt": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "partial",
+            "complete"
+          ]
+        },
+        "externalReadsAuthorized": {
+          "type": "boolean",
+          "enum": [
+            false
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "startedAt",
+        "finishedAt",
+        "status",
+        "externalReadsAuthorized"
+      ],
+      "additionalProperties": false
+    },
+    "scope": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "offline"
+          ]
+        },
+        "coverage": {
+          "type": "string",
+          "enum": [
+            "publication_references"
+          ]
+        },
+        "consistency": {
+          "type": "string",
+          "enum": [
+            "synthetic_snapshot"
+          ]
+        }
+      },
+      "required": [
+        "mode",
+        "coverage",
+        "consistency"
+      ],
+      "additionalProperties": false
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "publications": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "photoReferences": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "insufficientIdentification": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duplicateGroups": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "profileConflicts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "relatedPendingOperations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manualReviewItems": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "byPersistedStatus": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pending": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "approved": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "rejected": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "missing": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "null": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "invalid": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "byEligibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "already_protected": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "migration_candidate": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "manual_review": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "blocked": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "uniqueAssetsConfirmed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "byLegacyPublicOrigin": {
+          "type": "object",
+          "properties": {
+            "none_found": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "suspected": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "confirmed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknown": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "revoked": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "publications",
+        "photoReferences",
+        "insufficientIdentification",
+        "duplicateGroups",
+        "profileConflicts",
+        "relatedPendingOperations",
+        "manualReviewItems",
+        "errors",
+        "byPersistedStatus",
+        "byEligibility",
+        "uniqueAssetsConfirmed",
+        "byLegacyPublicOrigin"
+      ],
+      "additionalProperties": false
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "itemKey": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}:[0-9]+$"
+          },
+          "stableIdentity": {
+            "type": "boolean"
+          },
+          "publicationId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "publicationRef": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "photoId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "photoPosition": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ownerRef": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "persistedStatus": {
+            "$ref": "#/definitions/field"
+          },
+          "sourceFields": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "_id": {
+                "$ref": "#/definitions/field"
+              },
+              "url": {
+                "$ref": "#/definitions/field"
+              },
+              "publicId": {
+                "$ref": "#/definitions/field"
+              },
+              "assetId": {
+                "$ref": "#/definitions/field"
+              },
+              "resourceType": {
+                "$ref": "#/definitions/field"
+              },
+              "deliveryType": {
+                "$ref": "#/definitions/field"
+              },
+              "version": {
+                "$ref": "#/definitions/field"
+              },
+              "format": {
+                "$ref": "#/definitions/field"
+              },
+              "width": {
+                "$ref": "#/definitions/field"
+              },
+              "height": {
+                "$ref": "#/definitions/field"
+              },
+              "bytes": {
+                "$ref": "#/definitions/field"
+              },
+              "storageState": {
+                "$ref": "#/definitions/field"
+              }
+            },
+            "required": [
+              "_id",
+              "url",
+              "publicId",
+              "assetId",
+              "resourceType",
+              "deliveryType",
+              "version",
+              "format",
+              "width",
+              "height",
+              "bytes",
+              "storageState"
+            ]
+          },
+          "remoteVerification": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "found",
+                  "not_found",
+                  "unidentified",
+                  "invalid_identity",
+                  "invalid_catalog",
+                  "ambiguous",
+                  "identity_conflict",
+                  "error"
+                ]
+              },
+              "checkedAt": {
+                "type": "string"
+              },
+              "synthetic": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              },
+              "assetRef": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fields": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/definitions/field"
+                }
+              },
+              "conflictEvidence": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "strategy": {
+                      "type": "string",
+                      "enum": [
+                        "assetId",
+                        "publicId"
+                      ]
+                    },
+                    "ref": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    }
+                  },
+                  "required": [
+                    "strategy",
+                    "ref"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "state",
+              "checkedAt",
+              "synthetic",
+              "assetRef",
+              "fields",
+              "conflictEvidence"
+            ],
+            "additionalProperties": false
+          },
+          "classification": {
+            "type": "object",
+            "properties": {
+              "protection": {
+                "type": "string",
+                "enum": [
+                  "unverified",
+                  "verified_authenticated",
+                  "public_upload",
+                  "private_type"
+                ]
+              },
+              "integrity": {
+                "type": "string",
+                "enum": [
+                  "complete",
+                  "incomplete",
+                  "inconsistent"
+                ]
+              },
+              "references": {
+                "type": "string",
+                "enum": [
+                  "unique",
+                  "shared_publications",
+                  "profile_conflict",
+                  "ambiguous"
+                ]
+              },
+              "eligibility": {
+                "type": "string",
+                "enum": [
+                  "already_protected",
+                  "migration_candidate",
+                  "manual_review",
+                  "blocked"
+                ]
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "protection",
+              "integrity",
+              "references",
+              "eligibility",
+              "reasons"
+            ],
+            "additionalProperties": false
+          },
+          "duplicateGroupRefs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "profileConflictRefs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "uploading",
+                    "cleanup_pending",
+                    "processing",
+                    "completed",
+                    "failed",
+                    "invalid"
+                  ]
+                }
+              },
+              "required": [
+                "ref",
+                "state"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "publicationFields": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "_id": {
+                "$ref": "#/definitions/field"
+              },
+              "proprietario": {
+                "$ref": "#/definitions/field"
+              },
+              "status": {
+                "$ref": "#/definitions/field"
+              },
+              "fotos": {
+                "$ref": "#/definitions/field"
+              },
+              "createdAt": {
+                "$ref": "#/definitions/field"
+              },
+              "updatedAt": {
+                "$ref": "#/definitions/field"
+              }
+            },
+            "required": [
+              "_id",
+              "proprietario",
+              "status",
+              "fotos",
+              "createdAt",
+              "updatedAt"
+            ]
+          },
+          "publicationRecordRef": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "originalPhoto": {
+            "$ref": "#/definitions/field"
+          },
+          "evidence": {
+            "type": "object",
+            "properties": {
+              "localComplete": {
+                "type": "boolean"
+              },
+              "remoteComplete": {
+                "type": "boolean"
+              },
+              "remoteType": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "upload",
+                  "authenticated",
+                  "private",
+                  null
+                ]
+              },
+              "localType": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "upload",
+                  "authenticated",
+                  "private",
+                  null
+                ]
+              },
+              "storage": {
+                "type": "string",
+                "enum": [
+                  "missing",
+                  "null",
+                  "invalid_type",
+                  "unknown",
+                  "ready",
+                  "legacy_public",
+                  "migration_pending",
+                  "blocked"
+                ]
+              },
+              "mismatchFields": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "assetId",
+                    "publicId",
+                    "resourceType",
+                    "deliveryType",
+                    "version",
+                    "format",
+                    "width",
+                    "height",
+                    "bytes"
+                  ]
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "approved",
+                  "rejected",
+                  "missing",
+                  "invalid"
+                ]
+              },
+              "ownerExists": {
+                "type": "boolean"
+              },
+              "entityIssues": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "INVALID_PUBLICATION_ID",
+                    "DUPLICATE_PUBLICATION_ID",
+                    "MISSING_PHOTO_ID",
+                    "INVALID_PHOTO_ID",
+                    "DUPLICATE_PHOTO_ID_WITHIN_PUBLICATION",
+                    "DUPLICATE_PHOTO_ID_ACROSS_PUBLICATIONS"
+                  ]
+                }
+              },
+              "malformed": {
+                "type": "boolean"
+              },
+              "ambiguous": {
+                "type": "boolean"
+              },
+              "sufficientIdentity": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "localComplete",
+              "remoteComplete",
+              "remoteType",
+              "localType",
+              "storage",
+              "mismatchFields",
+              "status",
+              "ownerExists",
+              "entityIssues",
+              "malformed",
+              "ambiguous",
+              "sufficientIdentity"
+            ],
+            "additionalProperties": false
+          },
+          "identityEvidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "origin": {
+                  "type": "string",
+                  "enum": [
+                    "local",
+                    "synthetic_catalog"
+                  ]
+                },
+                "ref": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "strategy": {
+                  "type": "string",
+                  "enum": [
+                    "assetId",
+                    "compound"
+                  ]
+                }
+              },
+              "required": [
+                "origin",
+                "ref",
+                "strategy"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "correlationEvidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "photo",
+                    "profile",
+                    "operation"
+                  ]
+                },
+                "reference": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}(:[0-9]+)?$"
+                },
+                "assetRef": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "localAliases": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "catalogAliases": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                }
+              },
+              "required": [
+                "kind",
+                "reference",
+                "assetRef",
+                "localAliases",
+                "catalogAliases"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "legacyPublicOrigin": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "none_found",
+                  "suspected",
+                  "confirmed",
+                  "unknown",
+                  "revoked"
+                ]
+              },
+              "urlEvidence": {
+                "type": "string",
+                "enum": [
+                  "absent",
+                  "public_upload",
+                  "unknown"
+                ]
+              },
+              "catalogState": {
+                "type": "string",
+                "enum": [
+                  "checked",
+                  "ambiguous",
+                  "unavailable"
+                ]
+              },
+              "publicAssetRefs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "revocation": {
+                "type": "string",
+                "enum": [
+                  "not_proven"
+                ]
+              },
+              "publicAssets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "assetRef": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "publicIdRef": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "resourceType": {
+                      "type": "string",
+                      "enum": [
+                        "image"
+                      ]
+                    },
+                    "deliveryType": {
+                      "type": "string",
+                      "enum": [
+                        "upload"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "assetRef",
+                    "publicIdRef",
+                    "resourceType",
+                    "deliveryType"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "state",
+              "urlEvidence",
+              "catalogState",
+              "publicAssetRefs",
+              "revocation",
+              "publicAssets"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "itemKey",
+          "stableIdentity",
+          "publicationId",
+          "publicationRef",
+          "photoId",
+          "photoPosition",
+          "ownerRef",
+          "persistedStatus",
+          "sourceFields",
+          "remoteVerification",
+          "classification",
+          "duplicateGroupRefs",
+          "profileConflictRefs",
+          "operations",
+          "errors",
+          "publicationFields",
+          "publicationRecordRef",
+          "originalPhoto",
+          "evidence",
+          "identityEvidence",
+          "correlationEvidence",
+          "legacyPublicOrigin"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "SYNTHETIC_SOURCE_ERROR",
+              "INVALID_PUBLICATION",
+              "INVALID_PHOTO_ARRAY"
+            ]
+          },
+          "publicationRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "publicationPosition": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          }
+        },
+        "required": [
+          "code",
+          "publicationRef",
+          "publicationPosition"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "publications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "recordRef": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "position": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "publicationId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "persistedStatus": {
+            "$ref": "#/definitions/field"
+          },
+          "statusCategory": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "missing",
+              "null",
+              "invalid"
+            ]
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "_id": {
+                "$ref": "#/definitions/field"
+              },
+              "proprietario": {
+                "$ref": "#/definitions/field"
+              },
+              "status": {
+                "$ref": "#/definitions/field"
+              },
+              "fotos": {
+                "$ref": "#/definitions/field"
+              },
+              "createdAt": {
+                "$ref": "#/definitions/field"
+              },
+              "updatedAt": {
+                "$ref": "#/definitions/field"
+              }
+            },
+            "required": [
+              "_id",
+              "proprietario",
+              "status",
+              "fotos",
+              "createdAt",
+              "updatedAt"
+            ]
+          },
+          "originalRecord": {
+            "$ref": "#/definitions/field"
+          },
+          "entityIssues": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "INVALID_PUBLICATION_ID",
+                "DUPLICATE_PUBLICATION_ID"
+              ]
+            }
+          },
+          "extractedPhotos": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "photoRecords": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemKey": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}:[0-9]+$"
+                },
+                "photoPosition": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "originalPhoto": {
+                  "$ref": "#/definitions/field"
+                },
+                "sourceFields": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "_id": {
+                      "$ref": "#/definitions/field"
+                    },
+                    "url": {
+                      "$ref": "#/definitions/field"
+                    },
+                    "publicId": {
+                      "$ref": "#/definitions/field"
+                    },
+                    "assetId": {
+                      "$ref": "#/definitions/field"
+                    },
+                    "resourceType": {
+                      "$ref": "#/definitions/field"
+                    },
+                    "deliveryType": {
+                      "$ref": "#/definitions/field"
+                    },
+                    "version": {
+                      "$ref": "#/definitions/field"
+                    },
+                    "format": {
+                      "$ref": "#/definitions/field"
+                    },
+                    "width": {
+                      "$ref": "#/definitions/field"
+                    },
+                    "height": {
+                      "$ref": "#/definitions/field"
+                    },
+                    "bytes": {
+                      "$ref": "#/definitions/field"
+                    },
+                    "storageState": {
+                      "$ref": "#/definitions/field"
+                    }
+                  },
+                  "required": [
+                    "_id",
+                    "url",
+                    "publicId",
+                    "assetId",
+                    "resourceType",
+                    "deliveryType",
+                    "version",
+                    "format",
+                    "width",
+                    "height",
+                    "bytes",
+                    "storageState"
+                  ]
+                }
+              },
+              "required": [
+                "itemKey",
+                "photoPosition",
+                "originalPhoto",
+                "sourceFields"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "recordRef",
+          "position",
+          "publicationId",
+          "persistedStatus",
+          "statusCategory",
+          "fields",
+          "originalRecord",
+          "entityIssues",
+          "extractedPhotos",
+          "photoRecords"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "ownerRefs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
+    },
+    "sourceErrors": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "mechanismVersion",
+    "criteriaVersion",
+    "run",
+    "scope",
+    "summary",
+    "items",
+    "errors",
+    "publications",
+    "ownerRefs",
+    "sourceErrors"
+  ],
+  "additionalProperties": false,
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "field": {
+      "type": "object",
+      "properties": {
+        "present": {
+          "type": "boolean"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "null",
+            "array",
+            "object",
+            "string",
+            "number",
+            "boolean",
+            "undefined"
+          ]
+        },
+        "value": {
+          "type": [
+            "null",
+            "string",
+            "number",
+            "boolean"
+          ]
+        },
+        "valid": {
+          "type": "boolean"
+        },
+        "deliveryEvidence": {
+          "type": "string",
+          "enum": [
+            "absent",
+            "public_upload",
+            "unknown"
+          ]
+        },
+        "publicIdRef": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "present"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
