@@ -35,7 +35,10 @@ test.each([{ type: "upload" }, { asset_id: undefined }, { public_id: "outro" }, 
     callback(null, { ...resultado, ...alteracoes });
     return { end: jest.fn() };
   });
-  await expect(enviarImagem(Buffer.from("foto"), "foto", { deliveryType: "authenticated" })).rejects.toThrow("Resposta inválida");
+  await expect(enviarImagem(Buffer.from("foto"), "foto", { deliveryType: "authenticated" })).rejects.toMatchObject({
+    message: expect.stringContaining("Resposta inválida"),
+    code: "CLOUDINARY_INVALID_UPLOAD_RESPONSE",
+  });
 });
 test("exclusão distingue authenticated e mantém exclusão de perfil", async () => {
   const destroy = jest.spyOn(cloudinary.uploader, "destroy").mockResolvedValue({ result: "ok" });

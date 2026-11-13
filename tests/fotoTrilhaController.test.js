@@ -42,6 +42,35 @@ describe("controller de fotos da trilha", () => {
     jest.spyOn(mongoose, "startSession").mockResolvedValue(sessao);
   });
 
+  test("adicionar foto registra somente diagnóstico seguro e mantém 502 e cleanup", async () => {
+    const segredo = "segredo-nao-registrar";
+    const erro = Object.assign(new Error(`Invalid Signature ${segredo} https://example.com/?token=${segredo}`), {
+      code: segredo, http_code: 401, api_secret: segredo,
+      request: { headers: { Authorization: segredo } },
+      buffer: Buffer.from(segredo),
+    });
+    const log = jest.spyOn(console, "error").mockImplementation(() => {});
+    jest.spyOn(OperacaoImagem, "create").mockResolvedValue({ _id: "op-upload" });
+    const limpar = jest.spyOn(OperacaoImagem, "updateOne").mockResolvedValue({ modifiedCount: 1 });
+    enviarImagem.mockRejectedValue(erro);
+    const res = criarResposta();
+    const next = jest.fn();
+    await adicionarFotoTrilha({ params: { id: "507f1f77bcf86cd799439011" }, imagemValidada: Buffer.from(segredo) }, res, next);
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledWith("Falha no upload de foto da publicação:", expect.objectContaining({
+      statusHttp: 401, mensagem: "Cloudinary recusou as credenciais ou a identificação da conta.",
+    }));
+    expect(JSON.stringify(log.mock.calls)).not.toContain(segredo);
+    expect(JSON.stringify(log.mock.calls)).not.toContain("https://");
+    expect(res.status).toHaveBeenCalledWith(502);
+    expect(res.json).toHaveBeenCalledWith({ mensagem: "Não foi possível enviar a imagem." });
+    expect(limpar).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
+      $set: expect.objectContaining({ estado: "cleanup_pending" }),
+    }));
+    expect(next).not.toHaveBeenCalled();
+    expect(sessao.withTransaction).not.toHaveBeenCalled();
+  });
+
   test("adiciona foto com filtro atômico de proprietário e limite e conclui operação", async () => {
     const idFoto = new mongoose.Types.ObjectId();
     const foto = {
