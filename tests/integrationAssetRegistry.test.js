@@ -400,3 +400,20 @@ describe("registro explícito de assets da execução", () => {
     }], runId)).toThrow("O registro de assets contém dados de outra execução.");
   });
 });
+
+test("limpeza autorizada de integração mantém tipo authenticated sem atingir upload", async () => {
+  const anterior = process.env.TEST_RUN_ID;
+  process.env.TEST_RUN_ID = runId;
+  try {
+    const { db } = criarDbLimpeza([{ _id: "registro", runId, publicId: publicIdRegistrado, estado: "pending", resourceType: "image", deliveryType: "authenticated" }]);
+    const excluir = jest.fn().mockResolvedValue(undefined);
+    await limparAssetsRegistrados(db, runId, excluir);
+    expect(excluir).toHaveBeenCalledWith(publicIdRegistrado, { resourceType: "image", deliveryType: "authenticated" });
+  } finally {
+    if (anterior === undefined) delete process.env.TEST_RUN_ID; else process.env.TEST_RUN_ID = anterior;
+  }
+});
+
+test("registro de integração rejeita tipo de asset desconhecido antes de limpar", () => {
+  expect(() => validarRegistrosAssets([{ runId, publicId: publicIdRegistrado, estado: "pending", deliveryType: "desconhecido" }], runId)).toThrow("identidade");
+});

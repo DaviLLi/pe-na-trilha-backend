@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import mongoose from "mongoose";
+import { apresentarFoto, identidadeLimpeza } from "../domain/fotoPublicacao.js";
+import { STATUS_EDITAVEIS } from "../domain/publicacao.js";
 import OperacaoImagem from "../models/OperacaoImagem.js";
 import Trilha from "../models/Trilha.js";
 import {
@@ -15,15 +17,6 @@ function erroHttp(status, mensagem) {
   const erro = new Error(mensagem);
   erro.status = status;
   return erro;
-}
-
-function fotoPublica(foto) {
-  return {
-    _id: foto._id,
-    url: foto.url,
-    createdAt: foto.createdAt,
-    updatedAt: foto.updatedAt,
-  };
 }
 
 async function agendarLimpezaUpload(id, leaseToken) {
@@ -57,6 +50,8 @@ async function executarUpload(req, res, next, salvarFoto, statusSucesso) {
   try {
     operacao = await OperacaoImagem.create({
       publicId,
+      resourceType: "image",
+      deliveryType: "authenticated",
       estado: "uploading",
       uploadLeaseToken: leaseToken,
       uploadLeaseUntil: new Date(Date.now() + DURACAO_LEASE_UPLOAD_MS),
@@ -72,7 +67,7 @@ async function executarUpload(req, res, next, salvarFoto, statusSucesso) {
 
     let imagem;
     try {
-      imagem = await enviarImagem(req.imagemValidada, publicId);
+      imagem = await enviarImagem(req.imagemValidada, publicId, { deliveryType: "authenticated" });
       uploadConcluido = true;
     } catch {
       await agendarLimpezaUpload(operacao._id, leaseToken);
@@ -117,7 +112,7 @@ async function executarUpload(req, res, next, salvarFoto, statusSucesso) {
       await sessao.endSession();
     }
 
-    return res.status(statusSucesso).json(fotoPublica(fotoSalva));
+    return res.status(statusSucesso).json(apresentarFoto(fotoSalva, req.params.id, "autor"));
   } catch (erro) {
     if (operacao && uploadConcluido) {
       try {
@@ -142,8 +137,6 @@ async function executarUpload(req, res, next, salvarFoto, statusSucesso) {
 export async function adicionarFotoTrilha(req, res, next) {
   const foto = {
     _id: new mongoose.Types.ObjectId(),
-    url: null,
-    publicId: null,
   };
 
   return executarUpload(
@@ -155,6 +148,7 @@ export async function adicionarFotoTrilha(req, res, next) {
         {
           _id: req.params.id,
           proprietario: req.usuario._id,
+          status: { $in: STATUS_EDITAVEIS },
           $expr: {
             $lt: [{ $size: { $ifNull: ["$fotos", []] } }, MAX_FOTOS_TRILHA],
           },
@@ -163,8 +157,7 @@ export async function adicionarFotoTrilha(req, res, next) {
           $push: {
             fotos: {
               ...foto,
-              url: imagem.secureUrl,
-              publicId: imagem.publicId,
+              ...imagem,
             },
           },
         },
@@ -175,6 +168,7 @@ export async function adicionarFotoTrilha(req, res, next) {
         const trilhaDoProprietario = await Trilha.findOne({
           _id: req.params.id,
           proprietario: req.usuario._id,
+          status: { $in: STATUS_EDITAVEIS },
         }).session(sessao);
 
         if (!trilhaDoProprietario) {
@@ -198,6 +192,7 @@ export async function substituirFotoTrilha(req, res, next) {
       const trilha = await Trilha.findOne({
         _id: req.params.id,
         proprietario: req.usuario._id,
+        status: { $in: STATUS_EDITAVEIS },
         "fotos._id": req.params.fotoId,
       }).session(sessao);
 
@@ -206,15 +201,16 @@ export async function substituirFotoTrilha(req, res, next) {
       }
 
       const foto = trilha.fotos.id(req.params.fotoId);
+      const anterior = identidadeLimpeza(foto);
       const publicIdAnterior = foto.publicId;
-      foto.url = imagem.secureUrl;
-      foto.publicId = imagem.publicId;
+      Object.assign(foto, imagem);
+      foto.url = undefined;
       foto.updatedAt = new Date();
       await trilha.save({ session: sessao });
 
       if (publicIdAnterior && publicIdAnterior !== imagem.publicId) {
         await OperacaoImagem.create(
-          [{ publicId: publicIdAnterior, estado: "cleanup_pending", nextAttemptAt: new Date() }],
+          [{ ...anterior, estado: "cleanup_pending", nextAttemptAt: new Date() }],
           { session: sessao },
         );
       }
@@ -232,6 +228,7 @@ export async function removerFotoTrilha(req, res, next) {
       const trilha = await Trilha.findOne({
         _id: req.params.id,
         proprietario: req.usuario._id,
+        status: { $in: STATUS_EDITAVEIS },
         "fotos._id": req.params.fotoId,
       }).session(sessao);
 
@@ -240,13 +237,14 @@ export async function removerFotoTrilha(req, res, next) {
       }
 
       const foto = trilha.fotos.id(req.params.fotoId);
+      const identidade = identidadeLimpeza(foto);
       const publicId = foto.publicId;
       trilha.fotos.pull({ _id: req.params.fotoId });
       await trilha.save({ session: sessao });
 
       if (publicId) {
         await OperacaoImagem.create(
-          [{ publicId, estado: "cleanup_pending", nextAttemptAt: new Date() }],
+          [{ ...identidade, estado: "cleanup_pending", nextAttemptAt: new Date() }],
           { session: sessao },
         );
       }

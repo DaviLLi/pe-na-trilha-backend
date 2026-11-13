@@ -1,3 +1,4 @@
+import AuthSession from "../src/models/AuthSession.js";
 import { jest } from "@jest/globals";
 import { randomBytes } from "node:crypto";
 import { SignJWT } from "jose";
@@ -19,7 +20,7 @@ function criarRespostaMock() {
 }
 
 async function criarToken({ segredo = segredoTeste, expiracao = "15m" } = {}) {
-  return new SignJWT({})
+  return new SignJWT({ sid: "507f1f77bcf86cd799439099" })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(idUsuario)
     .setIssuedAt()
@@ -34,7 +35,7 @@ async function criarTokenComClaims({
   incluirIat = true,
   incluirExp = true,
 } = {}) {
-  const token = new SignJWT({}).setProtectedHeader({ alg: algoritmo, typ: "JWT" });
+  const token = new SignJWT({ sid: "507f1f77bcf86cd799439099" }).setProtectedHeader({ alg: algoritmo, typ: "JWT" });
 
   if (incluirSub) token.setSubject(sub);
   if (incluirIat) token.setIssuedAt();
@@ -44,6 +45,7 @@ async function criarTokenComClaims({
 }
 
 beforeEach(() => {
+  jest.spyOn(AuthSession, "findOne").mockResolvedValue({ _id: "507f1f77bcf86cd799439099" });
   process.env.JWT_SECRET = segredoTeste;
 });
 
@@ -90,7 +92,7 @@ describe("autenticarToken", () => {
 
   test("rejeita token expirado com resposta genérica", async () => {
     const agora = Math.floor(Date.now() / 1000);
-    const token = await new SignJWT({})
+    const token = await new SignJWT({ sid: "507f1f77bcf86cd799439099" })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setSubject(idUsuario)
       .setIssuedAt(agora - 120)

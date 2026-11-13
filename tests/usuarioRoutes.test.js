@@ -17,7 +17,7 @@ const segredoCsrfTeste = randomBytes(32).toString("base64");
 const idUsuario = "507f1f77bcf86cd799439011";
 
 async function criarTokenUsuario() {
-  return new SignJWT({})
+  return new SignJWT({ sid: "507f1f77bcf86cd799439099" })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(idUsuario)
     .setIssuedAt()
@@ -280,6 +280,7 @@ describe("POST /usuarios", () => {
 
 describe("perfil do usuário autenticado", () => {
   test("GET /usuarios/csrf retorna 401 controlado sem sessão compatível", async () => {
+    AuthSession.findOne.mockResolvedValue(null);
     const token = await criarTokenUsuario();
     const usuarioAutenticado = {
       _id: idUsuario,
@@ -300,7 +301,7 @@ describe("perfil do usuário autenticado", () => {
     expect(resposta.body).toEqual({
       mensagem: "Autenticação inválida ou expirada.",
     });
-    expect(buscar).toHaveBeenCalledTimes(1);
+    expect(buscar).not.toHaveBeenCalled();
   });
 
   test.each(["get", "patch"])("%s /usuarios/me exige autenticação", async (metodo) => {
@@ -445,7 +446,7 @@ describe("perfil do usuário autenticado", () => {
 
       expect(resposta.status).toBe(400);
       expect(buscar).toHaveBeenCalledTimes(1);
-      jest.restoreAllMocks();
+      buscar.mockRestore();
     }
   });
 
@@ -480,4 +481,8 @@ describe("perfil do usuário autenticado", () => {
     expect(resposta.body).toEqual({ mensagem: "Este e-mail já está cadastrado." });
     expect(JSON.stringify(resposta.body)).not.toContain("privado@example.com");
   });
+});
+
+beforeEach(() => {
+  jest.spyOn(AuthSession, "findOne").mockResolvedValue({ _id: "507f1f77bcf86cd799439099" });
 });

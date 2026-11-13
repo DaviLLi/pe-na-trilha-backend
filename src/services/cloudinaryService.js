@@ -1,3 +1,4 @@
+import { fotoProtegida } from "../domain/fotoPublicacao.js";
 import { randomUUID } from "node:crypto";
 import cloudinary, { configurarCloudinary } from "../config/cloudinary.js";
 
@@ -9,7 +10,7 @@ export function criarPublicIdFotoTrilha(trilhaId) {
   return `pe-na-trilha/trilhas/${trilhaId}/${randomUUID()}`;
 }
 
-export function enviarImagem(buffer, publicId) {
+export function enviarImagem(buffer, publicId, { deliveryType = "upload" } = {}) {
   if (!configurarCloudinary()) {
     throw new Error("Serviço de imagens indisponível.");
   }
@@ -19,6 +20,7 @@ export function enviarImagem(buffer, publicId) {
       {
         public_id: publicId,
         resource_type: "image",
+        ...(deliveryType === "authenticated" ? { type: "authenticated" } : {}),
         allowed_formats: ["jpg", "jpeg", "png", "webp"],
         overwrite: false,
         timeout: 120000,
@@ -34,6 +36,21 @@ export function enviarImagem(buffer, publicId) {
           return;
         }
 
+        if (deliveryType === "authenticated") {
+          const foto = {
+            assetId: resultado.asset_id, publicId: resultado.public_id,
+            resourceType: resultado.resource_type, deliveryType: resultado.type,
+            version: resultado.version, format: resultado.format,
+            width: resultado.width, height: resultado.height, bytes: resultado.bytes,
+            storageState: "ready",
+          };
+          if (foto.publicId !== publicId || !fotoProtegida(foto)) {
+            reject(new Error("Resposta inválida do serviço de imagens."));
+            return;
+          }
+          resolve(foto);
+          return;
+        }
         resolve({ secureUrl: resultado.secure_url, publicId: resultado.public_id });
       },
     );
@@ -41,14 +58,16 @@ export function enviarImagem(buffer, publicId) {
   });
 }
 
-export async function excluirImagem(publicId) {
+export async function excluirImagem(publicId, { resourceType = "image", deliveryType = "upload" } = {}) {
   if (!configurarCloudinary()) {
     throw new Error("Serviço de imagens indisponível.");
   }
 
   const resultado = await cloudinary.uploader.destroy(publicId, {
-    resource_type: "image",
+    resource_type: resourceType,
+    ...(deliveryType !== "upload" ? { type: deliveryType } : {}),
     invalidate: true,
+    timeout: 120000,
   });
 
   if (resultado.result !== "ok" && resultado.result !== "not found") {

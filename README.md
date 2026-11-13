@@ -106,6 +106,15 @@ O banco de integração permanece independente: `npm run test:integration` carre
 
 Por padrão, a API estará disponível em `http://localhost:3000`.
 
+## Moderação e edição por status
+
+O contrato de publicações evoluiu: novos registros são pendentes e consultas públicas
+retornam somente aprovadas. Aprovadas permitem ao autor editar apenas características
+e duração; fotos e dados básicos ficam bloqueados. Rejeitadas exigem reenvio explícito.
+Consulte [o contrato atualizado](docs/moderacao-publicacoes.md) para endpoints privados,
+moderação, validações, histórico e tratamento dos dados legados. As descrições básicas
+de trilhas abaixo devem ser lidas com essas restrições.
+
 ## Endpoints
 
 Por padrão, a API está disponível em `http://localhost:3000`. As rotas de leitura das trilhas são públicas. No fluxo do navegador, a autenticação usa cookies `HttpOnly`; mutações autenticadas também exigem `X-CSRF-Token`.
@@ -187,6 +196,10 @@ curl -X PATCH http://localhost:3000/usuarios/me \
 Trilhas e fotos de trilha são públicas para leitura. Somente o proprietário pode alterar ou excluir a trilha ou suas fotos; outro usuário recebe `404`. O backend define o proprietário na criação e ignora qualquer proprietário enviado pelo cliente. As respostas públicas das fotos incluem `_id`, `url`, `createdAt` e `updatedAt`, sem o public ID do Cloudinary.
 
 ### Upload de imagens
+
+Fotos de publicações agora usam armazenamento autenticado e URLs internas. Consulte
+[o contrato de fotos privadas](docs/fotos-privadas.md) para entrega, permissões e
+limitações dos assets legados. Fotos de perfil preservam seu comportamento anterior.
 
 Fotos de perfil e de trilhas aceitam JPEG, PNG ou WebP, com limite de 5 MiB por arquivo e um arquivo por requisição. Envie o arquivo no campo multipart `imagem`; não envie URL, public ID ou proprietário. O formato é conferido pela assinatura do arquivo. O armazenamento multipart usa memória, portanto uploads simultâneos podem exigir limites adicionais de concorrência ou taxa no gateway. A substituição e remoção registram a limpeza remota em operações persistidas, com tentativas automáticas e recuperação por lease. Operações que esgotam tentativas permanecem registradas para reenvio operacional.
 
@@ -312,3 +325,12 @@ Para verificar o padrão do código:
 ```bash
 npm run lint
 ```
+
+### Sessões obrigatórias em rotas protegidas
+
+Tanto cookie quanto Bearer exigem access JWT com `sid` de sessão ativa, não revogada
+e não expirada, vinculada ao usuário. JWTs legados sem `sid` recebem 401. Login e
+refresh atuais já emitem esse claim; não há migração de dados. Clientes antigos
+precisam renovar a sessão por refresh válido ou realizar login novamente. Logout
+revoga a sessão e invalida novas requisições com seus access tokens. As permissões
+de proprietário/admin e a proteção CSRF por cookie permanecem aplicadas.

@@ -1,3 +1,4 @@
+import AuthSession from "../src/models/AuthSession.js";
 import { jest } from "@jest/globals";
 import { randomBytes } from "node:crypto";
 import { SignJWT } from "jose";
@@ -16,7 +17,7 @@ const idOutroUsuario = "507f191e810c19729de860ea";
 const idTrilha = "507f1f77bcf86cd799439012";
 
 async function criarToken(idUsuario) {
-  return new SignJWT({})
+  return new SignJWT({ sid: "507f1f77bcf86cd799439099" })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(idUsuario)
     .setIssuedAt()
@@ -89,65 +90,22 @@ describe("rotas de trilhas", () => {
     expect(buscarUsuario).not.toHaveBeenCalled();
   });
 
-  test("mantém GET público para listagem e trilhas antigas sem proprietário", async () => {
-    const trilhas = [{ _id: idTrilha, titulo: "Trilha antiga" }];
+  test("mantém GET público restrito a aprovadas", async () => {
+    const trilhas = [{ _id: idTrilha, titulo: "Trilha antiga", fotos: [] }];
     const ordenar = jest.fn().mockResolvedValue(trilhas);
     jest.spyOn(Trilha, "find").mockReturnValue({ sort: ordenar });
-    jest.spyOn(Trilha, "findById").mockResolvedValue(trilhas[0]);
+    const buscar = jest.spyOn(Trilha, "findOne").mockResolvedValue(trilhas[0]);
 
     const respostaLista = await request(app).get("/trilhas");
     const respostaDetalhe = await request(app).get(`/trilhas/${idTrilha}`);
 
+    expect(Trilha.find).toHaveBeenCalledWith({ status: "approved" });
+    expect(buscar).toHaveBeenCalledWith({ _id: idTrilha, status: "approved" });
     expect(respostaLista.status).toBe(200);
     expect(respostaLista.body).toEqual(trilhas);
     expect(respostaDetalhe.status).toBe(200);
     expect(respostaDetalhe.body).toEqual(trilhas[0]);
   });
-
-  test.each(["put", "delete"])(
-    "não permite %s em trilhas antigas sem proprietário",
-    async (metodo) => {
-      const token = await autenticarUsuario();
-      if (metodo === "delete") {
-        iniciarTransacaoMock();
-      }
-      const atualizar = jest
-        .spyOn(Trilha, "findOneAndUpdate")
-        .mockResolvedValue(null);
-      const excluir = jest.spyOn(Trilha, "findOneAndDelete");
-      if (metodo === "delete") {
-        excluir.mockReturnValue({ session: jest.fn().mockResolvedValue(null) });
-      }
-      const requisicao = request(app)[metodo](`/trilhas/${idTrilha}`)
-        .set("Authorization", `Bearer ${token}`);
-
-      if (metodo === "put") {
-        requisicao.send({
-          titulo: "Título",
-          descricao: "Descrição",
-          endereco: "Endereço",
-        });
-      }
-
-      const resposta = await requisicao;
-
-      expect(resposta.status).toBe(404);
-      expect(resposta.body).toEqual({ mensagem: "Trilha não encontrada." });
-
-      if (metodo === "put") {
-        expect(atualizar).toHaveBeenCalledWith(
-          { _id: idTrilha, proprietario: idProprietario },
-          { titulo: "Título", descricao: "Descrição", endereco: "Endereço" },
-          { returnDocument: "after", runValidators: true },
-        );
-      } else {
-        expect(excluir).toHaveBeenCalledWith({
-          _id: idTrilha,
-          proprietario: idProprietario,
-        });
-      }
-    },
-  );
 
   test("cria trilha com o usuário autenticado e ignora proprietário enviado", async () => {
     const token = await autenticarUsuario();
@@ -176,121 +134,9 @@ describe("rotas de trilhas", () => {
       descricao: trilha.descricao,
       endereco: trilha.endereco,
       proprietario: idProprietario,
+      status: "pending",
     });
     expect(resposta.body.proprietario).toBe(idProprietario);
-  });
-
-  test("permite ao proprietário editar somente os campos da trilha", async () => {
-    const token = await autenticarUsuario();
-    const trilha = {
-      _id: idTrilha,
-      titulo: "Título atualizado",
-      descricao: "Descrição atualizada",
-      endereco: "Novo endereço",
-      proprietario: idProprietario,
-    };
-    const atualizar = jest
-      .spyOn(Trilha, "findOneAndUpdate")
-      .mockResolvedValue(trilha);
-
-    const resposta = await request(app)
-      .put(`/trilhas/${idTrilha}`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        titulo: trilha.titulo,
-        descricao: trilha.descricao,
-        endereco: trilha.endereco,
-        proprietario: idOutroUsuario,
-      });
-
-    expect(resposta.status).toBe(200);
-    expect(atualizar).toHaveBeenCalledWith(
-      { _id: idTrilha, proprietario: idProprietario },
-      {
-        titulo: trilha.titulo,
-        descricao: trilha.descricao,
-        endereco: trilha.endereco,
-      },
-      { returnDocument: "after", runValidators: true },
-    );
-    expect(resposta.body.proprietario).toBe(idProprietario);
-  });
-
-  test("retorna 404 ao editar trilha de outro usuário, inclusive para admin", async () => {
-    const token = await autenticarUsuario(idOutroUsuario, "admin");
-    const atualizar = jest.spyOn(Trilha, "findOneAndUpdate").mockImplementation(
-      async () => null,
-    );
-
-    const resposta = await request(app)
-      .put(`/trilhas/${idTrilha}`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        titulo: "Tentativa de alteração",
-        descricao: "Descrição",
-        endereco: "Endereço",
-      });
-
-    expect(resposta.status).toBe(404);
-    expect(resposta.body).toEqual({ mensagem: "Trilha não encontrada." });
-    expect(atualizar).toHaveBeenCalledWith(
-      { _id: idTrilha, proprietario: idOutroUsuario },
-      {
-        titulo: "Tentativa de alteração",
-        descricao: "Descrição",
-        endereco: "Endereço",
-      },
-      { returnDocument: "after", runValidators: true },
-    );
-  });
-
-  test("usuário comum não consegue editar trilha de outro usuário", async () => {
-    const token = await autenticarUsuario(idOutroUsuario, "user");
-    const trilhaOriginal = {
-      _id: idTrilha,
-      titulo: "Título original",
-      descricao: "Descrição original",
-      endereco: "Endereço original",
-      proprietario: idProprietario,
-    };
-    const atualizar = jest.spyOn(Trilha, "findOneAndUpdate").mockImplementation(
-      async (filtro, campos) => {
-        if (filtro.proprietario !== trilhaOriginal.proprietario) {
-          return null;
-        }
-
-        Object.assign(trilhaOriginal, campos);
-        return trilhaOriginal;
-      },
-    );
-
-    const resposta = await request(app)
-      .put(`/trilhas/${idTrilha}`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        titulo: "Título alterado indevidamente",
-        descricao: "Descrição alterada",
-        endereco: "Endereço alterado",
-      });
-
-    expect(resposta.status).toBe(404);
-    expect(resposta.body).toEqual({ mensagem: "Trilha não encontrada." });
-    expect(atualizar).toHaveBeenCalledWith(
-      { _id: idTrilha, proprietario: idOutroUsuario },
-      {
-        titulo: "Título alterado indevidamente",
-        descricao: "Descrição alterada",
-        endereco: "Endereço alterado",
-      },
-      { returnDocument: "after", runValidators: true },
-    );
-    expect(trilhaOriginal).toEqual({
-      _id: idTrilha,
-      titulo: "Título original",
-      descricao: "Descrição original",
-      endereco: "Endereço original",
-      proprietario: idProprietario,
-    });
   });
 
   test.each([
@@ -355,8 +201,8 @@ describe("rotas de trilhas", () => {
     expect(resposta.status).toBe(204);
     expect(agendar).toHaveBeenCalledWith(
       [
-        { publicId: "trilhas/a", estado: "cleanup_pending", nextAttemptAt: expect.any(Date) },
-        { publicId: "trilhas/b", estado: "cleanup_pending", nextAttemptAt: expect.any(Date) },
+        { publicId: "trilhas/a", resourceType: "image", deliveryType: "upload", estado: "cleanup_pending", nextAttemptAt: expect.any(Date) },
+        { publicId: "trilhas/b", resourceType: "image", deliveryType: "upload", estado: "cleanup_pending", nextAttemptAt: expect.any(Date) },
       ],
       { session: sessao },
     );
@@ -380,4 +226,8 @@ describe("rotas de trilhas", () => {
     });
     expect(criarOperacao).not.toHaveBeenCalled();
   });
+});
+
+beforeEach(() => {
+  jest.spyOn(AuthSession, "findOne").mockResolvedValue({ _id: "507f1f77bcf86cd799439099" });
 });
