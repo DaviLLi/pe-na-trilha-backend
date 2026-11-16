@@ -1,3 +1,5 @@
+import { diagnosticarUpload403Temporariamente } from "./diagnosticoUpload403Temporario.js";
+import { erroRespostaUploadInvalida } from "./diagnosticoUpload.js";
 import { fotoProtegida } from "../domain/fotoPublicacao.js";
 import { randomUUID } from "node:crypto";
 import cloudinary, { configurarCloudinary } from "../config/cloudinary.js";
@@ -16,7 +18,7 @@ export function enviarImagem(buffer, publicId, { deliveryType = "upload" } = {})
   }
 
   return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
+    const criarStream = () => cloudinary.uploader.upload_stream(
       {
         public_id: publicId,
         resource_type: "image",
@@ -32,7 +34,7 @@ export function enviarImagem(buffer, publicId, { deliveryType = "upload" } = {})
         }
 
         if (!resultado?.secure_url || !resultado.public_id) {
-          reject(new Error("Resposta inválida do serviço de imagens."));
+          reject(erroRespostaUploadInvalida());
           return;
         }
 
@@ -45,7 +47,7 @@ export function enviarImagem(buffer, publicId, { deliveryType = "upload" } = {})
             storageState: "ready",
           };
           if (foto.publicId !== publicId || !fotoProtegida(foto)) {
-            reject(new Error("Resposta inválida do serviço de imagens."));
+            reject(erroRespostaUploadInvalida());
             return;
           }
           resolve(foto);
@@ -54,6 +56,9 @@ export function enviarImagem(buffer, publicId, { deliveryType = "upload" } = {})
         resolve({ secureUrl: resultado.secure_url, publicId: resultado.public_id });
       },
     );
+    const stream = deliveryType === "authenticated"
+      ? diagnosticarUpload403Temporariamente(criarStream)
+      : criarStream();
     stream.end(buffer);
   });
 }

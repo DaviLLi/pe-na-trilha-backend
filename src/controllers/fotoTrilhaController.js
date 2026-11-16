@@ -1,3 +1,4 @@
+import { diagnosticarFalhaUpload } from "../services/diagnosticoUpload.js";
 import { randomUUID } from "node:crypto";
 import mongoose from "mongoose";
 import { apresentarFoto, identidadeLimpeza } from "../domain/fotoPublicacao.js";
@@ -40,7 +41,7 @@ async function agendarLimpezaUpload(id, leaseToken) {
   );
 }
 
-async function executarUpload(req, res, next, salvarFoto, statusSucesso) {
+async function executarUpload(req, res, next, salvarFoto, statusSucesso, diagnosticar = false) {
   const leaseToken = randomUUID();
   const publicId = criarPublicIdFotoTrilha(req.params.id);
   let operacao;
@@ -69,7 +70,10 @@ async function executarUpload(req, res, next, salvarFoto, statusSucesso) {
     try {
       imagem = await enviarImagem(req.imagemValidada, publicId, { deliveryType: "authenticated" });
       uploadConcluido = true;
-    } catch {
+    } catch (erroUpload) {
+      if (diagnosticar) {
+        console.error("Falha no upload de foto da publicação:", diagnosticarFalhaUpload(erroUpload));
+      }
       await agendarLimpezaUpload(operacao._id, leaseToken);
       return res.status(502).json({ mensagem: "Não foi possível enviar a imagem." });
     }
@@ -180,6 +184,7 @@ export async function adicionarFotoTrilha(req, res, next) {
       return trilha.fotos.id(foto._id);
     },
     201,
+    true,
   );
 }
 

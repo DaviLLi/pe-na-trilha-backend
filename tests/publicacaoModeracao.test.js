@@ -1,3 +1,4 @@
+import { nomeCookieAccess } from "../src/config/authCookies.js";
 import AuthSession from "../src/models/AuthSession.js";
 import { jest } from "@jest/globals";
 import { randomBytes } from "node:crypto";
@@ -164,9 +165,9 @@ test.each(["approved", "rejected"])("admin decide %s apenas em pendente e regist
   expect((await request(app).post(`/trilhas/${id}/moderacao`).set("Authorization", `Bearer ${token}`).send({ status: "approved" })).status).toBe(409);
 });
 
-test("admin não rejeita sem motivo", async () => {
+test.each([undefined, "", "   ", "x".repeat(2001), 42])("admin não rejeita com motivo inválido %#", async (motivo) => {
   Usuario.findById.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: autor, perfil: "admin" }) });
-  expect((await request(app).post(`/trilhas/${id}/moderacao`).set("Authorization", `Bearer ${token}`).send({ status: "rejected" })).status).toBe(400);
+  expect((await request(app).post(`/trilhas/${id}/moderacao`).set("Authorization", `Bearer ${token}`).send({ status: "rejected", motivo })).status).toBe(400);
   expect(atualizar).not.toHaveBeenCalled();
 });
 
@@ -239,4 +240,14 @@ test("listagem própria inclui filtro de proprietário e preserva rejeição", a
   expect(resposta.status).toBe(200);
   expect(buscar).toHaveBeenCalledWith({ proprietario: autor });
   expect(resposta.body[0]).toMatchObject({ status: "rejected", motivoRejeicao: "Corrigir fotos" });
+});
+
+
+test("admin autenticado por cookie não decide sem CSRF válido", async () => {
+  Usuario.findById.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: autor, perfil: "admin" }) });
+  registro.status = "pending";
+  const resposta = await request(app).post(`/trilhas/${id}/moderacao`)
+    .set("Cookie", `${nomeCookieAccess()}=${token}`).send({ status: "approved" });
+  expect(resposta.status).toBe(403);
+  expect(atualizar).not.toHaveBeenCalled();
 });
