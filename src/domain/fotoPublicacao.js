@@ -37,6 +37,9 @@ export function apresentarTrilha(trilha, contexto = "publico") {
   if (!privado && resposta.duracao && typeof resposta.duracao === "object") {
     resposta.duracao = { horas: resposta.duracao.horas, minutos: resposta.duracao.minutos };
   }
+  if (!privado && dados.proprietario?.nomeUsuario) {
+    resposta.autor = { nomeUsuario: dados.proprietario.nomeUsuario, nomeCompleto: dados.proprietario.nomeCompleto, fotoPerfil: dados.proprietario.fotoPerfil || null };
+  }
   if (!privado && resposta.proprietario && typeof resposta.proprietario === "object") {
     resposta.proprietario = resposta.proprietario._id || resposta.proprietario;
     resposta.proprietario = resposta.proprietario.toString();

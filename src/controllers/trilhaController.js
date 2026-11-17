@@ -6,7 +6,8 @@ import Trilha from "../models/Trilha.js";
 
 export async function listarTrilhas(_req, res, next) {
   try {
-    const trilhas = await Trilha.find({ status: "approved" }).sort({ createdAt: -1 });
+    const trilhas = await Trilha.find({ status: "approved" }).populate("proprietario", "nomeUsuario nomeCompleto fotoPerfil").sort({ createdAt: -1 });
+    res.set("Cache-Control", "no-store");
     res.status(200).json(trilhas.map((trilha) => apresentarTrilha(trilha)));
   } catch (erro) {
     next(erro);
@@ -77,8 +78,9 @@ export async function atualizarTrilha(req, res, next) {
 }
 
 export async function excluirTrilha(req, res, next) {
-  const sessao = await mongoose.startSession();
+  let sessao;
   try {
+    sessao = await mongoose.startSession();
     await sessao.withTransaction(async () => {
       const trilha = await Trilha.findOneAndDelete({
         _id: req.params.id,
@@ -91,7 +93,12 @@ export async function excluirTrilha(req, res, next) {
         throw erro;
       }
 
-      const fotos = (trilha.fotos || []).filter((foto) => foto.publicId);
+      const fotos = trilha.fotos || [];
+      if (fotos.some((foto) => typeof foto.publicId !== "string" || !foto.publicId.trim())) {
+        const erro = new Error("Publicação com foto sem identificação de armazenamento; requer reparo antes da exclusão.");
+        erro.status = 409;
+        throw erro;
+      }
 
       if (fotos.length) {
         await OperacaoImagem.create(
@@ -100,19 +107,20 @@ export async function excluirTrilha(req, res, next) {
             estado: "cleanup_pending",
             nextAttemptAt: new Date(),
           })),
-          { session: sessao },
+          { session: sessao, ordered: true },
         );
       }
     });
 
     return res.status(204).send();
   } catch (erro) {
+    if (erro.status === 409) return res.status(409).json({ mensagem: erro.message });
     if (erro.status === 404) {
       return res.status(404).json({ mensagem: "Trilha não encontrada." });
     }
     return next(erro);
   } finally {
-    await sessao.endSession();
+    await sessao?.endSession();
   }
 }
 
@@ -135,6 +143,7 @@ export async function reenviarTrilha(req, res, next) {
 export async function listarMinhasTrilhas(req, res, next) {
   try {
     const trilhas = await Trilha.find({ proprietario: req.usuario._id }).sort({ createdAt: -1 });
+    res.set("Cache-Control", "private, no-store");
     return res.json(trilhas.map((trilha) => apresentarTrilha(trilha, "autor")));
   } catch (erro) { return next(erro); }
 }

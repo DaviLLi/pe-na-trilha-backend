@@ -288,4 +288,52 @@ describe("infraestrutura MongoDB de integração", () => {
       await registrarOperacoesDaExecucao(db, OperacaoImagem, iniciouEm);
     }
   }, 180000);
+  test("exclui publicação com duas fotos reais, protege terceiros e processa limpeza persistente", async () => {
+    const { default: Trilha } = await import("../../src/models/Trilha.js");
+    const { default: OperacaoImagem } = await import("../../src/models/OperacaoImagem.js");
+    const { adicionarFotoTrilha } = await import("../../src/controllers/fotoTrilhaController.js");
+    const { excluirTrilha } = await import("../../src/controllers/trilhaController.js");
+    const { processarLoteOperacoesImagem } = await import("../../src/services/processarOperacoesImagem.js");
+    const iniciouEm = new Date();
+    const proprietario = new mongoose.Types.ObjectId();
+    const trilha = await Trilha.create({ titulo: "Exclusão integral", descricao: "Fixture isolada", endereco: "Teste", proprietario });
+    const imagemPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jzN8AAAAASUVORK5CYII=", "base64");
+    const propagar = (erro) => { throw erro; };
+    try {
+      for (let i = 0; i < 2; i++) {
+        const resposta = criarResposta();
+        await adicionarFotoTrilha({ params: { id: trilha.id }, usuario: { _id: proprietario }, imagemValidada: imagemPng }, resposta, propagar);
+        await registrarOperacoesDaExecucao(db, OperacaoImagem, iniciouEm);
+        expect(resposta.codigo).toBe(201);
+      }
+      await Trilha.updateOne({ _id: trilha._id }, { $set: { status: "approved" } });
+      const fotos = (await Trilha.findById(trilha._id)).fotos;
+      expect(fotos).toHaveLength(2);
+      const negada = criarResposta();
+      await excluirTrilha({ params: { id: trilha.id }, usuario: { _id: new mongoose.Types.ObjectId() } }, negada, propagar);
+      expect(negada.codigo).toBe(404);
+      expect(await Trilha.exists({ _id: trilha._id })).toBeTruthy();
+      const resposta = criarResposta();
+      await excluirTrilha({ params: { id: trilha.id }, usuario: { _id: proprietario } }, resposta, propagar);
+      expect(resposta.codigo).toBe(204);
+      expect(await Trilha.findById(trilha._id)).toBeNull();
+      const ids = fotos.map((foto) => foto.publicId);
+      expect(await OperacaoImagem.countDocuments({ publicId: { $in: ids }, estado: "cleanup_pending" })).toBe(2);
+      await processarLoteOperacoesImagem();
+      expect(await OperacaoImagem.countDocuments({ publicId: { $in: ids }, estado: "completed" })).toBe(4);
+      for (const foto of fotos) {
+        let erroConsulta;
+        try { await cloudinary.api.resource(foto.publicId, { resource_type: "image", type: "authenticated" }); } catch (erro) { erroConsulta = erro; }
+        expect(erroConsulta?.error?.http_code).toBe(404);
+      }
+      const semFotos = await Trilha.create({ titulo: "Sem fotos", descricao: "Fixture", endereco: "Teste", proprietario });
+      const segunda = criarResposta();
+      await excluirTrilha({ params: { id: semFotos.id }, usuario: { _id: proprietario } }, segunda, propagar);
+      expect(segunda.codigo).toBe(204);
+      expect(await Trilha.findById(semFotos._id)).toBeNull();
+    } finally {
+      await registrarOperacoesDaExecucao(db, OperacaoImagem, iniciouEm);
+    }
+  }, 180000);
+
 });
