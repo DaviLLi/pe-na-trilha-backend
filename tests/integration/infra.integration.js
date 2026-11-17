@@ -336,4 +336,24 @@ describe("infraestrutura MongoDB de integração", () => {
     }
   }, 180000);
 
+  test("busca pública consulta respostas persistidas e nunca inclui pendentes ou rejeitadas", async () => {
+    const { default: Trilha } = await import("../../src/models/Trilha.js");
+    const { default: app } = await import("../../src/app.js");
+    const { default: request } = await import("supertest");
+    const proprietario = new mongoose.Types.ObjectId();
+    const dados = { titulo: "Percurso Literal .*", descricao: "Vegetação de altitude", endereco: "Serra Azul", tipoLocal: "Cachoeira", dificuldade: "Moderada", condicaoCaminho: "Pedra", sinalizacao: "Parcial", estacionamento: "Gratuito", banheiro: "Não sei informar", alimentacao: "Quiosque", estruturaBanho: "Chuveiro", acesso: "Com autorização", caracteristicaPrincipal: "Piscina natural", duracao: { horas: 1, minutos: 35 }, proprietario };
+    const publicadas = [];
+    for (const status of ["approved", "pending", "rejected"]) publicadas.push(await Trilha.create({ ...dados, status }));
+    for (const termo of ["percurso", "altitude", "serra azul", "CaChO", "moder", "pedra", "parcial", "gratuito", "sei informar", "quiosque", "chuveiro", "autorização", "piscina", ".*", "35"]) {
+      const resposta = await request(app).get("/trilhas").query({ busca: termo });
+      expect(resposta.status).toBe(200);
+      expect(resposta.body.map(p => p._id)).toContain(publicadas[0].id);
+      expect(resposta.body.map(p => p._id)).not.toEqual(expect.arrayContaining([publicadas[1].id]));
+      expect(resposta.body.map(p => p._id)).not.toEqual(expect.arrayContaining([publicadas[2].id]));
+      expect(resposta.body.every(p => p.status === "approved")).toBe(true);
+    }
+    const semResultado = await request(app).get("/trilhas").query({ busca: "termo inexistente exclusivo" });
+    expect(semResultado.body).toEqual([]);
+  }, 60000);
+
 });

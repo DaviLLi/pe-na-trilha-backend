@@ -1,16 +1,21 @@
+import { filtroBuscaPublica } from "../domain/buscaPublicacoes.js";
 import mongoose from "mongoose";
 import { apresentarTrilha, identidadeLimpeza } from "../domain/fotoPublicacao.js";
 import { CAMPOS_BASICOS, CARACTERISTICAS, STATUS_EDITAVEIS } from "../domain/publicacao.js";
 import OperacaoImagem from "../models/OperacaoImagem.js";
 import Trilha from "../models/Trilha.js";
 
-export async function listarTrilhas(_req, res, next) {
+export async function listarTrilhas(req, res, next) {
   try {
-    const trilhas = await Trilha.find({ status: "approved" }).populate("proprietario", "nomeUsuario nomeCompleto fotoPerfil").sort({ createdAt: -1 });
+    const filtro = filtroBuscaPublica(req.query.busca);
+    const consulta = Trilha.find(filtro);
+    if (filtro.$or) consulta.maxTimeMS(2000);
+    const trilhas = await consulta.populate("proprietario", "nomeUsuario nomeCompleto fotoPerfil").sort({ createdAt: -1 });
     res.set("Cache-Control", "no-store");
     res.status(200).json(trilhas.map((trilha) => apresentarTrilha(trilha)));
   } catch (erro) {
-    next(erro);
+    if (erro.status === 400) return res.status(400).json({ mensagem: erro.message });
+    return next(erro);
   }
 }
 
