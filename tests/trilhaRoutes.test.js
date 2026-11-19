@@ -93,7 +93,7 @@ describe("rotas de trilhas", () => {
   test("mantém GET público restrito a aprovadas", async () => {
     const trilhas = [{ _id: idTrilha, titulo: "Trilha antiga", fotos: [] }];
     const ordenar = jest.fn().mockResolvedValue(trilhas);
-    jest.spyOn(Trilha, "find").mockReturnValue({ sort: ordenar });
+    jest.spyOn(Trilha, "find").mockReturnValue({ populate: jest.fn().mockReturnThis(), sort: ordenar });
     const buscar = jest.spyOn(Trilha, "findOne").mockResolvedValue(trilhas[0]);
 
     const respostaLista = await request(app).get("/trilhas");
@@ -204,9 +204,29 @@ describe("rotas de trilhas", () => {
         { publicId: "trilhas/a", resourceType: "image", deliveryType: "upload", estado: "cleanup_pending", nextAttemptAt: expect.any(Date) },
         { publicId: "trilhas/b", resourceType: "image", deliveryType: "upload", estado: "cleanup_pending", nextAttemptAt: expect.any(Date) },
       ],
-      { session: sessao },
+      { session: sessao, ordered: true },
     );
     expect(remover.mock.results[0].value.session).toHaveBeenCalledWith(sessao);
+  });
+
+  test("falha no registro da limpeza não confirma exclusão", async () => {
+    const token = await autenticarUsuario();
+    const sessao = iniciarTransacaoMock();
+    jest.spyOn(Trilha, "findOneAndDelete").mockReturnValue({ session: jest.fn().mockResolvedValue({ fotos: [{ publicId: "trilhas/a" }] }) });
+    jest.spyOn(OperacaoImagem, "create").mockRejectedValue(new Error("Falha no banco"));
+    const resposta = await request(app).delete(`/trilhas/${idTrilha}`).set("Authorization", `Bearer ${token}`);
+    expect(resposta.status).toBe(500);
+    expect(sessao.endSession).toHaveBeenCalled();
+  });
+
+  test("foto sem identidade impede exclusão silenciosa", async () => {
+    const token = await autenticarUsuario();
+    iniciarTransacaoMock();
+    jest.spyOn(Trilha, "findOneAndDelete").mockReturnValue({ session: jest.fn().mockResolvedValue({ fotos: [{}] }) });
+    const criar = jest.spyOn(OperacaoImagem, "create");
+    const resposta = await request(app).delete(`/trilhas/${idTrilha}`).set("Authorization", `Bearer ${token}`);
+    expect(resposta.status).toBe(409);
+    expect(criar).not.toHaveBeenCalled();
   });
 
   test("verifica propriedade antes de receber multipart", async () => {

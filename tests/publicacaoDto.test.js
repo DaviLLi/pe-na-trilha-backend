@@ -37,7 +37,7 @@ function verificarPublico(dados) {
 }
 
 test.each(["/trilhas", `/trilhas/${id}`])("%s filtra histórico, motivos e metadados internos", async (rota) => {
-  jest.spyOn(Trilha, "find").mockReturnValue({ sort: jest.fn().mockResolvedValue([base]) });
+  jest.spyOn(Trilha, "find").mockReturnValue({ populate: jest.fn().mockReturnThis(), sort: jest.fn().mockResolvedValue([base]) });
   jest.spyOn(Trilha, "findOne").mockResolvedValue(base);
   const resposta = await request(app).get(rota);
   expect(resposta.status).toBe(200);
@@ -48,7 +48,7 @@ test.each(["/trilhas", `/trilhas/${id}`])("%s filtra histórico, motivos e metad
 
 test.each(["/trilhas/minhas", `/trilhas/minhas/${id}`, "/trilhas/pendentes"])("%s mantém moderação no contexto autorizado", async (rota) => {
   autenticar(rota.endsWith("pendentes") ? "admin" : "user");
-  const buscar = jest.spyOn(Trilha, "find").mockReturnValue({ sort: jest.fn().mockResolvedValue([base]) });
+  const buscar = jest.spyOn(Trilha, "find").mockReturnValue({ populate: jest.fn().mockReturnThis(), sort: jest.fn().mockResolvedValue([base]) });
   const detalhe = jest.spyOn(Trilha, "findOne").mockResolvedValue(base);
   const resposta = await request(app).get(rota).set("Authorization", `Bearer ${token}`);
   expect(resposta.status).toBe(200);
@@ -92,3 +92,10 @@ test("campos estruturados públicos não propagam propriedades internas", () => 
 beforeEach(() => {
   jest.spyOn(AuthSession, "findOne").mockResolvedValue({ _id: "507f1f77bcf86cd799439099" });
 });
+
+ test("autor público expõe somente nome e avatar e preserva ID de propriedade", () => {
+ const dto = apresentarTrilha({ _id: "post", proprietario: { _id: "autor", nomeUsuario: "ana", nomeCompleto: "Ana", fotoPerfil: "https://example.test/avatar.jpg", email: "privado", senha: "segredo" }, fotos: [] });
+ expect(dto.proprietario).toBe("autor");
+ expect(dto.autor).toEqual({ nomeUsuario: "ana", nomeCompleto: "Ana", fotoPerfil: "https://example.test/avatar.jpg" });
+ expect(JSON.stringify(dto)).not.toMatch(/privado|segredo/);
+ });
