@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import { apresentarFoto } from "../domain/fotoPublicacao.js";
-import { OPCOES, CARACTERISTICAS, duracaoValida } from "../domain/publicacao.js";
+import { OPCOES, CARACTERISTICAS, duracaoValida, MAX_FOTOS_TRILHA } from "../domain/publicacao.js";
 
 const fotoTrilhaSchema = new mongoose.Schema(
   {
@@ -57,6 +57,7 @@ const trilhaSchema = new mongoose.Schema(
       ref: "Usuario",
       required: true,
     },
+    fotosPrevistas: { type: Number, min: 1, max: MAX_FOTOS_TRILHA, validate: Number.isInteger },
     fotos: {
       type: [fotoTrilhaSchema],
       default: [],

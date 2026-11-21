@@ -162,6 +162,7 @@ test.each(["approved", "rejected"])("admin decide %s apenas em pendente e regist
   expect(resposta.status).toBe(200);
   expect(resposta.body.status).toBe(status);
   expect(resposta.body.historicoModeracao[0]).toMatchObject({ acao: status, usuario: autor });
+  expect(atualizar.mock.calls[0][0]).toEqual({ _id: id, status: "pending", fotosPrevistas: null });
   expect((await request(app).post(`/trilhas/${id}/moderacao`).set("Authorization", `Bearer ${token}`).send({ status: "approved" })).status).toBe(409);
 });
 
@@ -250,4 +251,26 @@ test("admin autenticado por cookie não decide sem CSRF válido", async () => {
     .set("Cookie", `${nomeCookieAccess()}=${token}`).send({ status: "approved" });
   expect(resposta.status).toBe(403);
   expect(atualizar).not.toHaveBeenCalled();
+});
+
+test("a fila e a decisão usam o mesmo bloqueio enquanto há fotos previstas", async () => {
+  Usuario.findById.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: autor, perfil: "admin" }) });
+  const filtro = { status: "pending", fotosPrevistas: null };
+  registro.status = "pending";
+  registro.fotosPrevistas = 2;
+  registro.fotos = [{ _id: fotoId }];
+  const listar = jest.spyOn(Trilha, "find").mockImplementation((criterio) => ({
+    sort: jest.fn().mockResolvedValue(criterio.fotosPrevistas === null && registro.fotosPrevistas ? [] : [registro]),
+  }));
+  atualizar.mockImplementation(async (criterio) => criterio.fotosPrevistas === null && registro.fotosPrevistas ? null : registro);
+  const fila = () => request(app).get("/trilhas/pendentes").set("Authorization", `Bearer ${token}`);
+  const decidir = () => request(app).post(`/trilhas/${id}/moderacao`).set("Authorization", `Bearer ${token}`).send({ status: "approved" });
+  expect((await fila()).body).toEqual([]);
+  expect((await decidir()).status).toBe(409);
+  expect(listar).toHaveBeenCalledWith(filtro);
+  expect(atualizar.mock.calls[0][0]).toEqual({ _id: id, ...filtro });
+
+  delete registro.fotosPrevistas;
+  expect((await fila()).body).toHaveLength(1);
+  expect((await decidir()).status).toBe(200);
 });

@@ -9,7 +9,9 @@
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
     "test:integration": "node tests/integration/run.js",
     "lint": "eslint src",
-    "admin:provisionar": "node tools/provisionar-primeiro-admin.js"
+    "admin:provisionar": "node tools/provisionar-primeiro-admin.js",
+    "admin:promover": "node tools/gerenciar-admin.js promover",
+    "admin:remover": "node tools/gerenciar-admin.js remover"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

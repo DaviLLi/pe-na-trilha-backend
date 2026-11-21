@@ -71,7 +71,9 @@ describe("controller de fotos da trilha", () => {
     expect(sessao.withTransaction).not.toHaveBeenCalled();
   });
 
-  test("adiciona foto com filtro atômico de proprietário e limite e conclui operação", async () => {
+  test.each([[undefined, 1, false], [2, 1, false], [2, 2, true]])(
+    "adiciona foto de forma atômica e libera o envio somente quando completo (%s, %s, %s)",
+    async (fotosPrevistas, length, deveLiberar) => {
     const idFoto = new mongoose.Types.ObjectId();
     const foto = {
       ...metadados,
@@ -81,7 +83,8 @@ describe("controller de fotos da trilha", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-    const trilha = { fotos: { id: jest.fn(() => foto) } };
+    const trilha = { fotosPrevistas, fotos: { length, id: jest.fn(() => foto) } };
+    const liberar = jest.spyOn(Trilha, "updateOne").mockResolvedValue({ modifiedCount: 1 });
     jest.spyOn(OperacaoImagem, "create").mockResolvedValue({ _id: "op-upload" });
     const renovar = jest.spyOn(OperacaoImagem, "findOneAndUpdate").mockResolvedValue({ _id: "op-upload" });
     const atualizarOperacao = jest
@@ -109,6 +112,15 @@ describe("controller de fotos da trilha", () => {
       { $push: { fotos: expect.objectContaining({ _id: expect.any(mongoose.Types.ObjectId) }) } },
       { returnDocument: "after", session: sessao },
     );
+    if (deveLiberar) {
+      expect(liberar).toHaveBeenCalledWith(
+        { _id: req.params.id, proprietario: req.usuario._id, fotosPrevistas },
+        { $unset: { fotosPrevistas: 1 } },
+        { session: sessao },
+      );
+    } else {
+      expect(liberar).not.toHaveBeenCalled();
+    }
     expect(renovar).toHaveBeenCalledWith(
       expect.objectContaining({ estado: "uploading", uploadLeaseToken: expect.any(String) }),
       expect.any(Object),

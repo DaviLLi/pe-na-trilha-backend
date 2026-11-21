@@ -2,7 +2,7 @@ import { diagnosticarFalhaUpload } from "../services/diagnosticoUpload.js";
 import { randomUUID } from "node:crypto";
 import mongoose from "mongoose";
 import { apresentarFoto, identidadeLimpeza } from "../domain/fotoPublicacao.js";
-import { STATUS_EDITAVEIS } from "../domain/publicacao.js";
+import { STATUS_EDITAVEIS, MAX_FOTOS_TRILHA } from "../domain/publicacao.js";
 import OperacaoImagem from "../models/OperacaoImagem.js";
 import Trilha from "../models/Trilha.js";
 import {
@@ -12,7 +12,6 @@ import {
 
 const DURACAO_LEASE_UPLOAD_MS = 2 * 60 * 1000;
 const INTERVALO_HEARTBEAT_MS = 30000;
-const MAX_FOTOS_TRILHA = 5;
 
 function erroHttp(status, mensagem) {
   const erro = new Error(mensagem);
@@ -179,6 +178,16 @@ export async function adicionarFotoTrilha(req, res, next) {
           throw erroHttp(404, "Trilha não encontrada.");
         }
         throw erroHttp(409, "A trilha já possui o limite de 5 fotos.");
+      }
+
+      if (trilha.fotosPrevistas && trilha.fotos.length >= trilha.fotosPrevistas) {
+        // A última foto e a liberação devem ficar visíveis juntas.
+        const liberacao = await Trilha.updateOne(
+          { _id: req.params.id, proprietario: req.usuario._id, fotosPrevistas: trilha.fotosPrevistas },
+          { $unset: { fotosPrevistas: 1 } },
+          { session: sessao },
+        );
+        if (liberacao.modifiedCount !== 1) throw erroHttp(409, "Não foi possível concluir o envio das fotos.");
       }
 
       return trilha.fotos.id(foto._id);

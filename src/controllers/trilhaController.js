@@ -5,6 +5,9 @@ import { CAMPOS_BASICOS, CARACTERISTICAS, STATUS_EDITAVEIS } from "../domain/pub
 import OperacaoImagem from "../models/OperacaoImagem.js";
 import Trilha from "../models/Trilha.js";
 
+// Documentos antigos e cadastros sem fotos não têm reserva de upload.
+const pendenteParaModeracao = { status: "pending", fotosPrevistas: null };
+
 export async function listarTrilhas(req, res, next) {
   try {
     const filtro = filtroBuscaPublica(req.query.busca);
@@ -162,19 +165,19 @@ export async function moderarTrilha(req, res, next) {
       return res.status(400).json({ mensagem: "Decisão inválida; rejeição exige motivo de até 2000 caracteres." });
     }
     const trilha = await Trilha.findOneAndUpdate(
-      { _id: req.params.id, status: "pending" },
+      { _id: req.params.id, ...pendenteParaModeracao },
       { $set: { status, motivoRejeicao: status === "rejected" ? motivo.trim() : null },
         $push: { historicoModeracao: { acao: status, usuario: req.usuario._id, motivo: status === "rejected" ? motivo.trim() : null, data: new Date() } } },
       { returnDocument: "after", runValidators: true },
     );
-    if (!trilha) return res.status(409).json({ mensagem: "Publicação inexistente ou não está pendente." });
+    if (!trilha) return res.status(409).json({ mensagem: "A publicação ainda não está disponível para moderação." });
     return res.json(apresentarTrilha(trilha, "admin"));
   } catch (erro) { return next(erro); }
 }
 
 export async function listarPendentes(_req, res, next) {
   try {
-    const trilhas = await Trilha.find({ status: "pending" }).sort({ createdAt: 1 });
+    const trilhas = await Trilha.find(pendenteParaModeracao).sort({ createdAt: 1 });
     return res.json(trilhas.map((trilha) => apresentarTrilha(trilha, "admin")));
   }
   catch (erro) { return next(erro); }

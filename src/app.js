@@ -5,6 +5,7 @@ import { entregarFoto } from "./controllers/entregaFotoController.js";
 import express from "express";
 import trilhaRoutes from "./routes/trilhaRoutes.js";
 import usuarioRoutes from "./routes/usuarioRoutes.js";
+import administradorRoutes from "./routes/administradorRoutes.js";
 import {
   rotaNaoEncontrada,
   tratarErros,
@@ -23,6 +24,7 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
   }),
 );
+app.use("/admin/administradores", administradorRoutes);
 app.use(express.json());
 
 app.get("/admin/trilhas/:id/fotos/:fotoId/conteudo", autenticarToken, exigirAdmin, entregarFoto("admin"));
