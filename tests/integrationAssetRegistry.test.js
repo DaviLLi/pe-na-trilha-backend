@@ -8,8 +8,9 @@ import {
 
 const runId = "a".repeat(32);
 const outroRunId = "b".repeat(32);
-const publicIdRegistrado = "pe-na-trilha/perfis/123e4567-e89b-12d3-a456-426614174000";
-const publicIdNaoRegistrado = "pe-na-trilha/perfis/123e4567-e89b-12d3-a456-426614174001";
+const prefixo = `homologacao/integracao/${runId}`;
+const publicIdRegistrado = `${prefixo}/perfis/123e4567-e89b-12d3-a456-426614174000`;
+const publicIdNaoRegistrado = `${prefixo}/perfis/123e4567-e89b-12d3-a456-426614174001`;
 const marcadorValido = {
   _id: runId,
   environment: "integration",
@@ -84,6 +85,18 @@ describe("registro explícito de assets da execução", () => {
 
     expect(collection).not.toHaveBeenCalled();
   });
+
+  test.each([publicIdRegistrado.replace(runId, outroRunId), publicIdRegistrado.replace(prefixo, "pe-na-trilha")])(
+    "recusa registro e limpeza de assets fora da execução", async (publicId) => {
+      const collection = jest.fn();
+      await expect(registrarAssetDaExecucao({ collection }, runId, publicId)).rejects.toThrow("fora do escopo");
+      expect(collection).not.toHaveBeenCalled();
+      const { db } = criarDbLimpeza([{ runId, publicId, estado: "pending" }]);
+      const excluir = jest.fn();
+      await expect(limparAssetsRegistrados(db, runId, excluir)).rejects.toThrow("fora do escopo");
+      expect(excluir).not.toHaveBeenCalled();
+    },
+  );
 
   test("rejeita a ausência do marcador antes de consultar operações ou registrar asset", async () => {
     const markerFindOne = jest.fn().mockResolvedValue(null);
@@ -347,7 +360,7 @@ describe("registro explícito de assets da execução", () => {
     const registros = [1, 2, 3].map((numero) => ({
       _id: `registro-${numero}`,
       runId,
-      publicId: `pe-na-trilha/perfis/123e4567-e89b-12d3-a456-42661417400${numero}`,
+      publicId: `${prefixo}/perfis/123e4567-e89b-12d3-a456-42661417400${numero}`,
       estado: "pending",
     }));
     const updateOne = jest.fn(async (filtro, atualizacao) => {

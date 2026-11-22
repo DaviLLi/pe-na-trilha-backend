@@ -6,6 +6,7 @@ import {
   atualizarUsuarioAtual,
 } from "../controllers/usuarioController.js";
 import { validarLogin } from "../middlewares/validarLogin.js";
+import { limitarLogin } from "../middlewares/limitarLogin.js";
 import { validarUsuario } from "../middlewares/validarUsuario.js";
 import { validarAtualizacaoUsuario } from "../middlewares/validarAtualizacaoUsuario.js";
 import { autenticarToken } from "../middlewares/autenticarToken.js";
@@ -28,7 +29,7 @@ import {
 
 const router = Router();
 
-router.post("/login", validarOrigemFrontend, validarLogin, loginUsuario);
+router.post("/login", validarOrigemFrontend, validarLogin, limitarLogin, loginUsuario);
 router.post("/refresh", validarOrigemFrontend, renovarSessao);
 router.post("/logout", validarOrigemFrontend, autenticarToken, validarCsrf, logoutUsuario);
 router.get("/csrf", autenticarToken, consultarTokenCsrf);

@@ -35,6 +35,8 @@ beforeEach(() => {
   jest.spyOn(Trilha, "exists").mockImplementation(async (filtro) => filtro.proprietario === registro.proprietario ? { _id: id } : null);
   atualizar = jest.spyOn(Trilha, "findOneAndUpdate").mockImplementation(async (filtro, update) => {
     if (filtro.status !== registro.status || (filtro.proprietario && filtro.proprietario !== registro.proprietario)) return null;
+    if (filtro.revisaoModeracao !== undefined && filtro.revisaoModeracao !== (registro.revisaoModeracao ?? null)) return null;
+    if (filtro.updatedAt && filtro.updatedAt.getTime() !== registro.updatedAt.getTime()) return null;
     Object.assign(registro, update.$set);
     if (update.$push) registro.historicoModeracao.push(update.$push.historicoModeracao);
     return registro;
@@ -42,6 +44,9 @@ beforeEach(() => {
 });
 afterEach(() => jest.restoreAllMocks());
 const editar = (dados) => request(app).patch(`/trilhas/${id}`).set("Authorization", `Bearer ${token}`).send(dados);
+const revisaoAtual = () => `${registro.revisaoModeracao ?? "legacy"}:${registro.updatedAt.getTime()}`;
+const decidir = (dados = {}) => request(app).post(`/trilhas/${id}/moderacao`)
+  .set("Authorization", `Bearer ${token}`).send({ status: "approved", revisao: revisaoAtual(), ...dados });
 
 test.each(["titulo", "descricao", "endereco", "fotos"])("aprovada bloqueia %s sem salvar nem mesmo duração permitida", async (campo) => {
   const resposta = await editar({ [campo]: campo === "fotos" ? [] : "Novo", duracao: { horas: 1, minutos: 0 } });
@@ -157,13 +162,35 @@ test("usuário comum não pode moderar ou listar pendentes", async () => {
 test.each(["approved", "rejected"])("admin decide %s apenas em pendente e registra histórico", async (status) => {
   Usuario.findById.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: autor, perfil: "admin" }) });
   registro.status = "pending";
-  const resposta = await request(app).post(`/trilhas/${id}/moderacao`).set("Authorization", `Bearer ${token}`)
-    .send(status === "rejected" ? { status, motivo: "Corrigir fotos" } : { status });
+  const resposta = await decidir(status === "rejected" ? { status, motivo: "Corrigir fotos" } : { status });
   expect(resposta.status).toBe(200);
   expect(resposta.body.status).toBe(status);
   expect(resposta.body.historicoModeracao[0]).toMatchObject({ acao: status, usuario: autor });
-  expect(atualizar.mock.calls[0][0]).toEqual({ _id: id, status: "pending", fotosPrevistas: null });
-  expect((await request(app).post(`/trilhas/${id}/moderacao`).set("Authorization", `Bearer ${token}`).send({ status: "approved" })).status).toBe(409);
+  expect(atualizar.mock.calls[0][0]).toEqual({
+    _id: id, status: "pending", fotosPrevistas: null, revisaoModeracao: null, updatedAt: registro.updatedAt,
+  });
+  expect((await decidir()).status).toBe(409);
+});
+
+test("duas decisões simultâneas sobre a mesma revisão produzem uma única moderação", async () => {
+  Usuario.findById.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: autor, perfil: "admin" }) });
+  registro.status = "pending";
+  const respostas = await Promise.all([decidir(), decidir({ status: "rejected", motivo: "Revisar" })]);
+  expect(respostas.map(({ status }) => status).sort()).toEqual([200, 409]);
+  expect(registro.historicoModeracao).toHaveLength(1);
+});
+
+test("edição da publicação invalida uma decisão mesmo no mesmo milissegundo", async () => {
+  Usuario.findById.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: autor, perfil: "admin" }) });
+  registro.status = "pending";
+  jest.spyOn(Trilha, "find").mockReturnValue({ sort: jest.fn().mockResolvedValue([registro]) });
+  const fila = await request(app).get("/trilhas/pendentes").set("Authorization", `Bearer ${token}`);
+  expect(fila.body[0].revisao).toBe(revisaoAtual());
+  registro.revisaoModeracao = "11111111-2222-4333-8444-555555555555";
+  expect((await decidir({ revisao: fila.body[0].revisao })).status).toBe(409);
+  expect((await decidir({ revisao: undefined })).status).toBe(400);
+  expect(registro.historicoModeracao).toHaveLength(0);
+  expect((await decidir()).status).toBe(200);
 });
 
 test.each([undefined, "", "   ", "x".repeat(2001), 42])("admin não rejeita com motivo inválido %#", async (motivo) => {
@@ -264,11 +291,10 @@ test("a fila e a decisão usam o mesmo bloqueio enquanto há fotos previstas", a
   }));
   atualizar.mockImplementation(async (criterio) => criterio.fotosPrevistas === null && registro.fotosPrevistas ? null : registro);
   const fila = () => request(app).get("/trilhas/pendentes").set("Authorization", `Bearer ${token}`);
-  const decidir = () => request(app).post(`/trilhas/${id}/moderacao`).set("Authorization", `Bearer ${token}`).send({ status: "approved" });
   expect((await fila()).body).toEqual([]);
   expect((await decidir()).status).toBe(409);
   expect(listar).toHaveBeenCalledWith(filtro);
-  expect(atualizar.mock.calls[0][0]).toEqual({ _id: id, ...filtro });
+  expect(atualizar.mock.calls[0][0]).toMatchObject({ _id: id, ...filtro });
 
   delete registro.fotosPrevistas;
   expect((await fila()).body).toHaveLength(1);

@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import {
   carregarAmbienteIntegracao,
   prepararAmbienteAplicacao,
+  validarBancoConectado,
   validarBancoDaExecucao,
 } from "./ambiente.js";
 import { excluirImagem } from "../../src/services/cloudinaryService.js";
@@ -33,6 +34,7 @@ export default async function globalTeardown() {
     );
     conectado = true;
     const db = mongoose.connection.db;
+    validarBancoConectado(db, bancoExecucao);
     await executarAposValidarTopologia(db, config.hostsPermitidos, async () => {
       await validarMarcadorDaExecucao(db, process.env.TEST_RUN_ID);
 
@@ -55,6 +57,9 @@ export default async function globalTeardown() {
         : [];
       validarRegistrosAssets(registrosAssets, process.env.TEST_RUN_ID);
       validarCoberturaAssetsOperacao(publicIds, registrosAssets, process.env.TEST_RUN_ID);
+      if (!config.cloudinary && registrosAssets.some(({ estado }) => estado === "pending")) {
+        throw new Error("Há assets registrados, mas o Cloudinary isolado não está habilitado.");
+      }
 
       // A base aleatória começou vazia; remova primeiro as referências criadas pelo run.
       for (const nome of nomesColecoes.filter(

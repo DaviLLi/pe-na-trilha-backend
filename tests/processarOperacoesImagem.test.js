@@ -8,6 +8,8 @@ jest.unstable_mockModule("../src/services/cloudinaryService.js", () => ({
 }));
 
 const { default: OperacaoImagem } = await import("../src/models/OperacaoImagem.js");
+const { default: Trilha } = await import("../src/models/Trilha.js");
+const { default: Usuario } = await import("../src/models/Usuario.js");
 const {
   processarUmaOperacao,
   recuperarOperacoesExpiradas,
@@ -29,6 +31,8 @@ describe("processador de operações de imagem", () => {
     for (const nome of nomesEnv) process.env[nome] = "teste";
     excluirImagem.mockReset();
     jest.restoreAllMocks();
+    jest.spyOn(Trilha, "exists").mockReturnValue({ read: jest.fn().mockResolvedValue(null) });
+    jest.spyOn(Usuario, "exists").mockReturnValue({ read: jest.fn().mockResolvedValue(null) });
   });
 
   afterEach(() => {
@@ -62,6 +66,44 @@ describe("processador de operações de imagem", () => {
     jest.spyOn(OperacaoImagem, "findOneAndUpdate").mockResolvedValue(null);
     await expect(processarUmaOperacao()).resolves.toBe(false);
     expect(excluirImagem).not.toHaveBeenCalled();
+  });
+
+  test("homologação ignora registros de produção no claim, na recuperação e no reenvio", async () => {
+    const ambiente = jest.replaceProperty(process, "env", {
+      ...process.env, APP_ENV: "homologation", HOMOLOGATION_CLOUDINARY_PREFIX: "homologacao",
+    });
+    try {
+      const autorizada = "homologacao/perfis/123e4567-e89b-12d3-a456-426614174000";
+      const producao = autorizada.replace("homologacao/", "pe-na-trilha/");
+      const buscar = jest.spyOn(OperacaoImagem, "findOneAndUpdate")
+        .mockResolvedValueOnce({ _id: "fora-do-escopo", publicId: producao }).mockResolvedValueOnce(null);
+      const recuperar = jest.spyOn(OperacaoImagem, "updateMany").mockResolvedValue({ modifiedCount: 0 });
+      await expect(processarUmaOperacao()).resolves.toBe(false);
+      await recuperarOperacoesExpiradas();
+      await reenfileirarOperacaoImagem("fora-do-escopo");
+      for (const [filtro] of [...buscar.mock.calls, ...recuperar.mock.calls]) {
+        expect(filtro.publicId.test(autorizada)).toBe(true);
+        expect(filtro.publicId.test(producao)).toBe(false);
+        expect(filtro.publicId.test(`${autorizada}\n`)).toBe(false);
+      }
+      expect(Trilha.exists).not.toHaveBeenCalled();
+      expect(Usuario.exists).not.toHaveBeenCalled();
+      expect(excluirImagem).not.toHaveBeenCalled();
+    } finally {
+      ambiente.restore();
+    }
+  });
+
+  test("impede a exclusão de um asset ainda referenciado", async () => {
+    const publicId = "server/asset";
+    jest.spyOn(OperacaoImagem, "findOneAndUpdate").mockResolvedValue({ _id: "op1", publicId });
+    const atualizar = jest.spyOn(OperacaoImagem, "updateOne").mockResolvedValue({ matchedCount: 1 });
+    Trilha.exists.mockReturnValue({ read: jest.fn().mockResolvedValue({ _id: "trilha" }) });
+    await expect(processarUmaOperacao()).resolves.toBe(true);
+    expect(Trilha.exists).toHaveBeenCalledWith({ "fotos.publicId": publicId });
+    expect(excluirImagem).not.toHaveBeenCalled();
+    expect(atualizar).toHaveBeenCalledWith(expect.objectContaining({ estado: "processing" }),
+      expect.objectContaining({ $set: expect.objectContaining({ estado: "failed" }) }));
   });
 
   test("uma única reivindicação vence quando dois ciclos concorrem", async () => {

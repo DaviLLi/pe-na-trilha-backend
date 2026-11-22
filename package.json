@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "NODE_ENV=development node --watch src/server.js",
-    "start": "NODE_ENV=production node src/server.js",
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
+    "dev": "NODE_ENV=development APP_ENV=development node --watch src/server.js",
+    "start": "NODE_ENV=production APP_ENV=production node src/server.js",
+    "start:homologation": "NODE_ENV=production APP_ENV=homologation node src/server.js",
+    "test": "NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
     "test:integration": "node tests/integration/run.js",
     "lint": "eslint src",
     "admin:provisionar": "node tools/provisionar-primeiro-admin.js",
@@ -33,5 +34,20 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "overrides": {
+    "@jest/reporters": {
+      "glob": "14.0.6"
+    },
+    "jest-config": {
+      "glob": "14.0.6"
+    },
+    "jest-runtime": {
+      "glob": "14.0.6"
+    },
+    "test-exclude": {
+      "glob": "14.0.6",
+      "minimatch": "11.0.9"
+    }
   }
 }

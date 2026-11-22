@@ -3,7 +3,7 @@ import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
 import { Writable } from "node:stream";
 import mongoose from "mongoose";
-import { obterUriMongo } from "../src/config/database.js";
+import { conectarBanco, obterUriMongo } from "../src/config/database.js";
 import { ErroGerenciamentoAdmin } from "../src/services/errosGerenciamentoAdmin.js";
 import {
   alterarPerfilAdmin,
@@ -33,12 +33,15 @@ const mensagens = {
 };
 
 async function configurarBanco() {
+  if (process.env.APP_ENV && process.env.APP_ENV !== process.env.NODE_ENV) {
+    throw new ErroGerenciamentoAdmin("AMBIENTE");
+  }
   await import("../src/config/carregarAmbiente.js");
   const uri = obterUriMongo();
   return {
     uri,
     async conectar() {
-      await mongoose.connect(uri, { autoCreate: false, autoIndex: false });
+      await conectarBanco(process.env, { autoCreate: false, autoIndex: false });
       return mongoose.connection.name;
     },
     desconectar: () => mongoose.disconnect(),

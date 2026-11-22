@@ -1,4 +1,6 @@
 import { jest } from "@jest/globals";
+import { BANCO_HOMOLOGACAO } from "../src/config/isolamentoMongo.js";
+import { validarBancoConectado } from "./integration/ambiente.js";
 
 const estado = {
   eventos: [],
@@ -17,9 +19,9 @@ const config = {
   uri: "mongodb://mongo.test.internal/pe_na_trilha_integration",
   hostsPermitidos: ["mongo.test.internal"],
   cloudinary: {
-    TEST_CLOUDINARY_CLOUD_NAME: "cloud-test",
-    TEST_CLOUDINARY_API_KEY: "test-key",
-    TEST_CLOUDINARY_API_SECRET: "test-secret",
+    CLOUDINARY_CLOUD_NAME: "cloud-test",
+    CLOUDINARY_API_KEY: "test-key",
+    CLOUDINARY_API_SECRET: "test-secret",
   },
 };
 
@@ -108,6 +110,7 @@ jest.unstable_mockModule("mongoose", () => ({ default: mongoose }));
 jest.unstable_mockModule("./integration/ambiente.js", () => ({
   carregarAmbienteIntegracao: jest.fn(() => config),
   prepararAmbienteAplicacao: jest.fn(),
+  validarBancoConectado,
   validarBancoDaExecucao: jest.fn(() => estado.banco),
 }));
 jest.unstable_mockModule("./integration/topologia.js", () => ({
@@ -163,6 +166,7 @@ describe("hooks globais de integração", () => {
     estado.etapaFalha = null;
     estado.falharDesconexao = false;
     estado.erroOriginal = criarErroSimulado();
+    db.databaseName = estado.banco;
     process.env.TEST_RUN_ID = estado.runId;
     mongoose.connect.mockClear();
     mongoose.disconnect.mockClear();
@@ -203,6 +207,21 @@ describe("hooks globais de integração", () => {
 
     expect(db.createCollection).not.toHaveBeenCalled();
     expect(estado.eventos.some((evento) => evento.startsWith("inserir:"))).toBe(false);
+    expect(mongoose.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    ["setup", globalSetup],
+    ["teardown", globalTeardown],
+  ])("%s recusa a conexão no banco de homologação antes de qualquer operação", async (_etapa, executar) => {
+    db.databaseName = BANCO_HOMOLOGACAO;
+
+    await expect(executar()).rejects.toThrow();
+
+    expect(db.listCollections).not.toHaveBeenCalled();
+    expect(db.collection).not.toHaveBeenCalled();
+    expect(db.createCollection).not.toHaveBeenCalled();
+    expect(model.init).not.toHaveBeenCalled();
     expect(mongoose.disconnect).toHaveBeenCalledTimes(1);
   });
 

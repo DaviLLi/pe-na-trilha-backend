@@ -42,6 +42,28 @@ describe("controller de fotos da trilha", () => {
     jest.spyOn(mongoose, "startSession").mockResolvedValue(sessao);
   });
 
+  test.each([substituirFotoTrilha, removerFotoTrilha])("bloqueia mutação de foto de trilha de produção em homologação", async (executar) => {
+    const ambiente = jest.replaceProperty(process, "env", {
+      ...process.env, APP_ENV: "homologation", HOMOLOGATION_CLOUDINARY_PREFIX: "homologacao",
+    });
+    try {
+      const foto = { publicId: "pe-na-trilha/trilhas/507f1f77bcf86cd799439011/123e4567-e89b-12d3-a456-426614174000" };
+      const trilha = { fotos: { id: jest.fn(() => foto), pull: jest.fn() }, save: jest.fn() };
+      const consulta = Object.assign(Promise.resolve(trilha), { session: jest.fn().mockResolvedValue(trilha) });
+      jest.spyOn(Trilha, "findOne").mockReturnValue(consulta);
+      const agendar = jest.spyOn(OperacaoImagem, "create");
+      const res = criarResposta();
+      await executar({ usuario: { _id: "autor" }, params: { id: "t1", fotoId: "foto" } }, res, jest.fn());
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(enviarImagem).not.toHaveBeenCalled();
+      expect(agendar).not.toHaveBeenCalled();
+      expect(trilha.fotos.pull).not.toHaveBeenCalled();
+      expect(trilha.save).not.toHaveBeenCalled();
+    } finally {
+      ambiente.restore();
+    }
+  });
+
   test("adicionar foto registra somente diagnóstico seguro e mantém 502 e cleanup", async () => {
     const segredo = "segredo-nao-registrar";
     const erro = Object.assign(new Error(`Invalid Signature ${segredo} https://example.com/?token=${segredo}`), {

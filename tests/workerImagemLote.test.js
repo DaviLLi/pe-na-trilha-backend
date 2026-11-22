@@ -2,6 +2,8 @@ import { jest } from "@jest/globals";
 const excluirImagem = jest.fn();
 jest.unstable_mockModule("../src/services/cloudinaryService.js", () => ({ excluirImagem }));
 const { default: OperacaoImagem } = await import("../src/models/OperacaoImagem.js");
+const { default: Trilha } = await import("../src/models/Trilha.js");
+const { default: Usuario } = await import("../src/models/Usuario.js");
 const { processarLoteOperacoesImagem, processarUmaOperacao, recuperarOperacoesExpiradas, iniciarProcessadorOperacoesImagem, pararProcessadorOperacoesImagem } = await import("../src/services/processarOperacoesImagem.js");
 const nomes = ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"];
 let anterior, fila, ativas, maxAtivas, buscar, atualizar;
@@ -20,6 +22,8 @@ function aplicar(doc, update) {
   for (const campo of Object.keys(update.$unset || {})) delete doc[campo];
 }
 beforeEach(() => {
+  jest.spyOn(Trilha, "exists").mockReturnValue({ read: jest.fn().mockResolvedValue(null) });
+  jest.spyOn(Usuario, "exists").mockReturnValue({ read: jest.fn().mockResolvedValue(null) });
   anterior = nomes.map((nome) => process.env[nome]);
   nomes.forEach((nome) => { process.env[nome] = "teste"; });
   ativas = 0; maxAtivas = 0; popular(0);
@@ -81,7 +85,7 @@ test("falha remota mantém pendente com backoff e não declara conclusão", asyn
   excluirImagem.mockRejectedValue(new Error("detalhe confidencial"));
   const antes = Date.now();
   await processarLoteOperacoesImagem();
-  expect(fila[0]).toMatchObject({ estado: "cleanup_pending", tentativas: 1, ultimoErro: "Falha ao excluir imagem no serviço remoto." });
+  expect(fila[0]).toMatchObject({ estado: "cleanup_pending", tentativas: 1, ultimoErro: "Não foi possível confirmar a limpeza da imagem." });
   expect(fila[0].nextAttemptAt.getTime()).toBeGreaterThanOrEqual(antes + 2000);
   expect(fila[0].concluidoEm).toBeUndefined();
   expect(JSON.stringify(atualizar.mock.calls)).not.toContain("confidencial");

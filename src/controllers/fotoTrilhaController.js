@@ -2,6 +2,7 @@ import { diagnosticarFalhaUpload } from "../services/diagnosticoUpload.js";
 import { randomUUID } from "node:crypto";
 import mongoose from "mongoose";
 import { apresentarFoto, identidadeLimpeza } from "../domain/fotoPublicacao.js";
+import { escopoImagensHomologacao, validarImagemDaHomologacao } from "../domain/identidadeImagem.js";
 import { STATUS_EDITAVEIS, MAX_FOTOS_TRILHA } from "../domain/publicacao.js";
 import OperacaoImagem from "../models/OperacaoImagem.js";
 import Trilha from "../models/Trilha.js";
@@ -197,24 +198,35 @@ export async function adicionarFotoTrilha(req, res, next) {
   );
 }
 
+async function buscarFotoEditavel(req, sessao) {
+  const consulta = Trilha.findOne({
+    _id: req.params.id,
+    proprietario: req.usuario._id,
+    status: { $in: STATUS_EDITAVEIS },
+    "fotos._id": req.params.fotoId,
+  });
+  const trilha = await (sessao ? consulta.session(sessao) : consulta);
+  const foto = trilha?.fotos.id(req.params.fotoId);
+  if (!foto) throw erroHttp(404, "Foto da trilha não encontrada.");
+  validarImagemDaHomologacao(foto.publicId);
+  return { trilha, foto };
+}
+
 export async function substituirFotoTrilha(req, res, next) {
+  if (escopoImagensHomologacao()) {
+    try {
+      await buscarFotoEditavel(req);
+    } catch (erro) {
+      if (erro.status) return res.status(erro.status).json({ mensagem: erro.message });
+      return next(erro);
+    }
+  }
   return executarUpload(
     req,
     res,
     next,
     async (imagem, sessao) => {
-      const trilha = await Trilha.findOne({
-        _id: req.params.id,
-        proprietario: req.usuario._id,
-        status: { $in: STATUS_EDITAVEIS },
-        "fotos._id": req.params.fotoId,
-      }).session(sessao);
-
-      if (!trilha) {
-        throw erroHttp(404, "Foto da trilha não encontrada.");
-      }
-
-      const foto = trilha.fotos.id(req.params.fotoId);
+      const { trilha, foto } = await buscarFotoEditavel(req, sessao);
       const anterior = identidadeLimpeza(foto);
       const publicIdAnterior = foto.publicId;
       Object.assign(foto, imagem);
@@ -239,18 +251,7 @@ export async function removerFotoTrilha(req, res, next) {
   const sessao = await mongoose.startSession();
   try {
     await sessao.withTransaction(async () => {
-      const trilha = await Trilha.findOne({
-        _id: req.params.id,
-        proprietario: req.usuario._id,
-        status: { $in: STATUS_EDITAVEIS },
-        "fotos._id": req.params.fotoId,
-      }).session(sessao);
-
-      if (!trilha) {
-        throw erroHttp(404, "Foto da trilha não encontrada.");
-      }
-
-      const foto = trilha.fotos.id(req.params.fotoId);
+      const { trilha, foto } = await buscarFotoEditavel(req, sessao);
       const identidade = identidadeLimpeza(foto);
       const publicId = foto.publicId;
       trilha.fotos.pull({ _id: req.params.fotoId });

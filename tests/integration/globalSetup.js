@@ -1,5 +1,6 @@
 import {
   carregarAmbienteIntegracao,
+  validarBancoConectado,
   validarBancoDaExecucao,
 } from "./ambiente.js";
 import mongoose from "mongoose";
@@ -119,6 +120,7 @@ export default async function globalSetup() {
       },
     );
     const db = mongoose.connection.db;
+    validarBancoConectado(db, banco);
     etapa = "validação da topologia";
     await executarAposValidarTopologia(db, config.hostsPermitidos, async () => {
       etapa = "verificação de banco vazio";

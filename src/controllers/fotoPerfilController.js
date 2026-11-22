@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import mongoose from "mongoose";
 import OperacaoImagem from "../models/OperacaoImagem.js";
 import Usuario from "../models/Usuario.js";
+import { escopoImagensHomologacao, validarFotoPerfilDaHomologacao } from "../domain/identidadeImagem.js";
 import {
   criarPublicIdFotoPerfil,
   enviarImagem,
@@ -38,6 +39,11 @@ export async function substituirFotoPerfil(req, res, next) {
   let uploadConcluido = false;
   let heartbeat;
   try {
+    if (escopoImagensHomologacao()) {
+      const atual = await Usuario.findById(req.usuario._id).select("+fotoPerfilPublicId");
+      if (!atual) return res.status(404).json({ mensagem: "Usuário não encontrado." });
+      validarFotoPerfilDaHomologacao(atual);
+    }
     operacao = await OperacaoImagem.create({
       publicId,
       estado: "uploading",
@@ -98,6 +104,7 @@ export async function substituirFotoPerfil(req, res, next) {
           throw erro;
         }
 
+        validarFotoPerfilDaHomologacao(usuario);
         fotoAnterior = usuario.fotoPerfilPublicId;
         usuario.fotoPerfil = imagem.secureUrl;
         usuario.fotoPerfilPublicId = imagem.publicId;
@@ -153,6 +160,7 @@ export async function substituirFotoPerfil(req, res, next) {
         console.error("Falha ao registrar limpeza de imagem:", erroDeLimpeza.message);
       }
     }
+    if (erro.status === 409) return res.status(409).json({ mensagem: erro.message });
     return next(erro);
   } finally {
     if (heartbeat) {
@@ -175,6 +183,7 @@ export async function removerFotoPerfil(req, res, next) {
         throw erro;
       }
 
+      validarFotoPerfilDaHomologacao(usuario);
       fotoAnterior = usuario.fotoPerfilPublicId;
       usuario.fotoPerfil = null;
       usuario.fotoPerfilPublicId = null;
@@ -193,6 +202,7 @@ export async function removerFotoPerfil(req, res, next) {
     if (erro.status === 404) {
       return res.status(404).json({ mensagem: "Usuário não encontrado." });
     }
+    if (erro.status === 409) return res.status(409).json({ mensagem: erro.message });
     return next(erro);
   } finally {
     await sessao.endSession();

@@ -1,6 +1,7 @@
 node_modules
 .env
 .env.integration
+.env.homologation
 .env.production
 .env.production.local
 npm-debug.log*

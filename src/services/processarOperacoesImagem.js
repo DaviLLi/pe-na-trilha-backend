@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import OperacaoImagem from "../models/OperacaoImagem.js";
+import Trilha from "../models/Trilha.js";
+import Usuario from "../models/Usuario.js";
 import { cloudinaryDisponivel } from "../config/cloudinary.js";
 import { excluirImagem } from "./cloudinaryService.js";
+import { imagemNoEscopo, padraoImagemDaHomologacao } from "../domain/identidadeImagem.js";
 
 const LEASE_PROCESSAMENTO_MS = 3 * 60 * 1000;
 const CARÊNCIA_UPLOAD_MS = 10 * 60 * 1000;
@@ -20,9 +23,15 @@ function atrasoTentativa(tentativas) {
   return Math.min(60 * 60 * 1000, 1000 * 2 ** Math.min(tentativas, 12));
 }
 
+function filtroEscopoImagem() {
+  const publicId = padraoImagemDaHomologacao();
+  return publicId ? { publicId } : {};
+}
+
 export async function recuperarOperacoesExpiradas(agora = new Date()) {
+  const escopo = filtroEscopoImagem();
   await OperacaoImagem.updateMany(
-    { estado: "uploading", uploadLeaseUntil: { $lte: agora } },
+    { ...escopo, estado: "uploading", uploadLeaseUntil: { $lte: agora } },
     {
       $set: {
         estado: "cleanup_pending",
@@ -41,7 +50,7 @@ export async function recuperarOperacoesExpiradas(agora = new Date()) {
   );
 
   await OperacaoImagem.updateMany(
-    { estado: "processing", processingLeaseUntil: { $lte: agora } },
+    { ...escopo, estado: "processing", processingLeaseUntil: { $lte: agora } },
     {
       $set: {
         estado: "cleanup_pending",
@@ -63,14 +72,18 @@ export async function recuperarOperacoesExpiradas(agora = new Date()) {
   );
 }
 
-export async function processarUmaOperacao(agora = new Date()) {
-  if (!cloudinaryDisponivel()) {
+export async function processarUmaOperacao(
+  agora = new Date(),
+  excluir = cloudinaryDisponivel() ? excluirImagem : undefined,
+) {
+  if (!excluir) {
     return false;
   }
 
   const token = randomUUID();
   const operacao = await OperacaoImagem.findOneAndUpdate(
     {
+      ...filtroEscopoImagem(),
       estado: "cleanup_pending",
       $or: [{ nextAttemptAt: null }, { nextAttemptAt: { $lte: agora } }],
     },
@@ -91,7 +104,7 @@ export async function processarUmaOperacao(agora = new Date()) {
     { returnDocument: "after", sort: { nextAttemptAt: 1 } },
   );
 
-  if (!operacao) {
+  if (!operacao || !imagemNoEscopo(operacao.publicId)) {
     return false;
   }
 
@@ -116,10 +129,21 @@ export async function processarUmaOperacao(agora = new Date()) {
   heartbeat.unref?.();
 
   try {
+    const [trilha, usuario] = await Promise.all([
+      Trilha.exists({ "fotos.publicId": operacao.publicId }).read("primary"),
+      Usuario.exists({ fotoPerfilPublicId: operacao.publicId }).read("primary"),
+    ]);
+    if (trilha || usuario) {
+      await OperacaoImagem.updateOne(filtroLease, {
+        $set: { estado: "failed", nextAttemptAt: null, ultimoErro: "Imagem ainda referenciada pelo sistema." },
+        $unset: { processingLeaseToken: 1, processingLeaseUntil: 1 },
+      });
+      return true;
+    }
     // Revalida antes da chamada externa, inclusive se o claim demorou a retornar.
     await renovarLease();
     if (leasePerdido) return true;
-    await excluirImagem(operacao.publicId, { resourceType: operacao.resourceType || "image", deliveryType: operacao.deliveryType || "upload" });
+    await excluir(operacao.publicId, { resourceType: operacao.resourceType || "image", deliveryType: operacao.deliveryType || "upload" });
     if (leasePerdido) return true;
     await OperacaoImagem.updateOne(
       { _id: operacao._id, estado: "processing", processingLeaseToken: token },
@@ -132,7 +156,7 @@ export async function processarUmaOperacao(agora = new Date()) {
     if (leasePerdido) return true;
     const encerrada = operacao.tentativas >= MAX_TENTATIVAS;
     const ocorridoEm = new Date();
-    const mensagem = "Falha ao excluir imagem no serviço remoto.";
+    const mensagem = "Não foi possível confirmar a limpeza da imagem.";
     await OperacaoImagem.updateOne(
       { _id: operacao._id, estado: "processing", processingLeaseToken: token },
       {
@@ -162,7 +186,7 @@ export async function processarUmaOperacao(agora = new Date()) {
 
 export async function reenfileirarOperacaoImagem(id) {
   return OperacaoImagem.findOneAndUpdate(
-    { _id: id, estado: "failed" },
+    { ...filtroEscopoImagem(), _id: id, estado: "failed" },
     {
       $set: {
         estado: "cleanup_pending",

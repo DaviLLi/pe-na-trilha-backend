@@ -52,23 +52,21 @@ Para upload e remoção de fotos, o MongoDB local deve operar como replica set, 
    ```env
    PORT=3000
    NODE_ENV=development
-   MONGO_URI_DEVELOPMENT=mongodb+srv://usuario:senha@cluster.mongodb.net/penatrilha
+   MONGO_URI_DEVELOPMENT=
    FRONTEND_URL=http://localhost:5173
    FRONTEND_ORIGINS=http://localhost:5173
    JWT_SECRET=
    CSRF_SECRET=
    AUTH_COOKIE_SAME_SITE=lax
-   CLOUDINARY_CLOUD_NAME=
-   CLOUDINARY_API_KEY=
-   CLOUDINARY_API_SECRET=
    ```
 
    Gere valores independentes para `JWT_SECRET` e `CSRF_SECRET`, cada um com pelo menos 256 bits (por exemplo, `openssl rand -base64 32`), e configure-os somente no `.env` local ou no gerenciador de segredos do ambiente. Não coloque valores reais no repositório.
 
    | Variável | Obrigatória | Descrição | Padrão |
    | --- | --- | --- | --- |
-   | `NODE_ENV` | Definida pelo script | Ambiente selecionado (`development` ou `production`) | — |
-   | `MONGO_URI_DEVELOPMENT` | Sim em desenvolvimento | URI exclusiva do MongoDB de desenvolvimento | — |
+   | `NODE_ENV` e `APP_ENV` | Definidas pelo script | Modo do Node e ambiente da aplicação | — |
+   | `MONGO_URI_DEVELOPMENT` | Sim em desenvolvimento | URI de um banco dedicado em replica set local | — |
+   | `MONGO_URI_HOMOLOGATION` | Sim em homologação | URI de `pe_na_trilha_homologacao` no Atlas de testes | — |
    | `MONGO_URI_PRODUCTION` | Sim em produção | URI exclusiva do MongoDB de produção | — |
    | `PORT` | Não | Porta utilizada pela API | `3000` |
    | `FRONTEND_URL` | Não | Origem frontend legada/fallback | `http://localhost:5173` |
@@ -76,17 +74,17 @@ Para upload e remoção de fotos, o MongoDB local deve operar como replica set, 
    | `JWT_SECRET` | Sim | Segredo aleatório de pelo menos 256 bits para assinar tokens | — |
    | `CSRF_SECRET` | Sim | Segredo independente de pelo menos 256 bits para tokens CSRF vinculados à sessão | — |
    | `AUTH_COOKIE_SAME_SITE` | Não | `lax`, `strict` ou `none`; `none` exige ambiente HTTPS de produção | `lax` em desenvolvimento, `none` em produção |
-   | `CLOUDINARY_CLOUD_NAME` | Não | Nome da conta Cloudinary para upload de fotos de perfil e trilhas | — |
+   | `CLOUDINARY_CLOUD_NAME` | Não em produção | Product Environment para fotos de perfil e trilhas | — |
    | `CLOUDINARY_API_KEY` | Não | Chave de API Cloudinary, mantida somente no backend | — |
    | `CLOUDINARY_API_SECRET` | Não | Segredo de API Cloudinary, mantido somente no backend | — |
 
-As credenciais Cloudinary são opcionais para iniciar a API. Sem elas, cadastro, login e trilhas continuam disponíveis, enquanto os endpoints de foto respondem `503`. Nunca configure credenciais Cloudinary no frontend. Operações de sessão usam transações MongoDB; instâncias MongoDB locais precisam operar como replica set.
+O Cloudinary fica desativado em desenvolvimento. Homologação exige a configuração de mídia dedicada. Sem mídia habilitada, cadastro, login e trilhas continuam disponíveis e os endpoints de foto respondem `503`. Mantenha as credenciais Cloudinary no backend. Operações de sessão usam transações MongoDB e precisam de um replica set local em desenvolvimento.
 
 > Não publique o arquivo `.env`: ele pode conter credenciais e já está incluído no `.gitignore`.
 
 ## Executando o projeto
 
-`npm run dev` seleciona explicitamente `development` e usa somente `MONGO_URI_DEVELOPMENT` do `.env`. O valor do URI existente deve ser preservado nessa variável. A configuração de produção nunca é usada pelo comando de desenvolvimento.
+`npm run dev` seleciona `development`, lê `.env` e exige que `MONGO_URI_DEVELOPMENT` aponte para um banco local acessível por loopback. Use o [guia de ambientes](docs/ambientes.md) para configurar o replica set e os ambientes externos.
 
 Em desenvolvimento, com reinicialização automática:
 
@@ -102,7 +100,7 @@ npm start
 
 `npm start` seleciona explicitamente `production` e exige `MONGO_URI_PRODUCTION`. Não há fallback para o URI de desenvolvimento. Configure a variável no ambiente do serviço de produção ou em um gerenciador de segredos, apontando para o cluster Atlas `PeNaTrilhaProducao`. O arquivo `.env.production.example` documenta o formato esperado; não versione um `.env.production` real. Se a variável de produção estiver ausente, o servidor encerra antes de conectar ao MongoDB.
 
-O banco de integração permanece independente: `npm run test:integration` carrega `.env.integration` e usa somente `TEST_MONGO_URI`, sem fallback para as variáveis de desenvolvimento ou produção.
+`npm run start:homologation` seleciona `.env.homologation` e usa `pe_na_trilha_homologacao` no Atlas de testes e a pasta reservada `homologacao/` no Cloudinary. `npm run test:integration` carrega `.env.integration` e usa um banco `tst_*` no mesmo cluster.
 
 Por padrão, a API estará disponível em `http://localhost:3000`.
 
@@ -227,11 +225,13 @@ Logout invalida a sessão no banco antes de apagar os cookies. O cliente não pe
 
 Os testes de integração são opt-in e usam `npm run test:integration`; `npm test` continua executando a suíte padrão sem depender de MongoDB ou Cloudinary.
 
-Configure um MongoDB descartável com suporte a transações e uma conta Cloudinary dedicada a testes. Para MongoDB local, configure o servidor como replica set (o exemplo usa `replicaSet=rs0`). Copie `.env.integration.example` para `.env.integration` e preencha somente credenciais desses recursos de teste. O setup carrega explicitamente esse arquivo e nunca usa `.env`, `MONGO_URI_DEVELOPMENT`, `MONGO_URI_PRODUCTION` ou credenciais Cloudinary normais como fallback.
+Copie `.env.integration.example` para `.env.integration` e preencha a URI e a lista de hosts do Atlas de testes existente. O comando `npm run test:integration -- --check` valida a configuração sem conectar. Os quatro cenários com Cloudinary ficam desativados por padrão.
 
-São obrigatórias `TEST_ENVIRONMENT=integration`, `TEST_MONGO_URI`, `TEST_MONGO_ALLOWED_HOSTS` com uma lista explícita de hosts, e `TEST_CLOUDINARY_CLOUD_NAME`, `TEST_CLOUDINARY_API_KEY` e `TEST_CLOUDINARY_API_SECRET`. O URI deve apontar para um banco cujo nome contenha um segmento `test`, `testing`, `integration` ou `ci`; o host precisa corresponder exatamente a um item da allowlist. Para `mongodb+srv`, inclua na allowlist o host de seed e todos os destinos SRV. O setup valida duas respostas DNS SRV consecutivas e aborta antes da conexão se os destinos ou portas mudarem. Também valida os membros `hosts`, `passives` e `arbiters` anunciados pelo replica set antes de criar o marcador. No teardown, o model `OperacaoImagem` só é importado depois dessa validação, evitando a criação automática antecipada de índices. Topologias mongos são rejeitadas porque a resposta `hello` não enumera todos os membros internos dos shards.
+Para ativar o Cloudinary real, configure a pasta reservada e a chave de homologação conforme o [guia de ambientes](docs/ambientes.md). Com `TEST_CLOUDINARY_REAL=1`, o executor exige o prefixo reservado e usa apenas IDs sob `homologacao/integracao/<TEST_RUN_ID>/`. Use imagens sintéticas e confirme o escopo da chave na pasta da Media Library antes de executar.
 
-Cada execução cria um nome de banco `tst_<TEST_RUN_ID>` com os 32 caracteres aleatórios completos (36 bytes), respeitando o limite de 38 bytes do MongoDB Atlas. A validação rejeita qualquer nome de banco da execução acima desse limite. O setup aborta se encontrar coleções nesse banco antes dos testes. O teardown remove documentos somente desse banco isolado e exclui assets somente após registro explícito em `__integration_assets` para o `TEST_RUN_ID` atual. Os testes de imagem devem registrar os `publicId`s obtidos após uploads feitos nessa execução; a coleção geral de operações não autoriza exclusões. O registro permanece se a chamada Cloudinary falhar, permitindo nova tentativa. Fixtures devem criar imagens pelos endpoints, sem semear `publicId`s arbitrários. Não usa `dropDatabase` nem limpa assets por prefixo. Mensagens de recuperação ainda podem identificar nomes legados, mas a validação atual só aceita o formato compacto. Use credenciais com acesso restrito ao cluster de teste e não compartilhe a conta Cloudinary com produção.
+São obrigatórias `TEST_ENVIRONMENT=integration`, `TEST_MONGO_URI` e `TEST_MONGO_ALLOWED_HOSTS`. A URI deve usar o seed SRV do Atlas de testes e um banco-base com um segmento `test`, `testing`, `integration` ou `ci`. Inclua na allowlist o seed e todos os destinos SRV. O setup valida duas respostas DNS SRV consecutivas e aborta antes da conexão se os destinos ou portas mudarem. Também valida os membros `hosts`, `passives` e `arbiters` anunciados pelo replica set antes de criar o marcador. No teardown, o model `OperacaoImagem` só é importado depois dessa validação, evitando a criação automática antecipada de índices. Topologias mongos são rejeitadas porque a resposta `hello` não enumera todos os membros internos dos shards.
+
+Cada execução usa um banco `tst_<TEST_RUN_ID>` de 36 bytes. O identificador tem 32 caracteres hexadecimais e é gerado por padrão. Para restringir uma credencial Atlas a um banco exato, selecione o identificador com antecedência conforme o [guia de ambientes](docs/ambientes.md#restringir-a-credencial-da-suíte-por-banco). O setup aborta se encontrar coleções nesse banco antes dos testes. O teardown remove somente documentos do banco marcado para a execução e preserva as coleções e índices. A exclusão no Cloudinary exige registro explícito em `__integration_assets` para o `TEST_RUN_ID` atual. Fixtures de imagem criam assets pelos endpoints, e o registro permanece se a chamada Cloudinary falhar. A validação aceita somente o formato compacto do nome de banco.
 
 O driver pode resolver novamente o DNS SRV e abrir conexões com membros anunciados pelo servidor durante descoberta antes que o setup consiga comparar a resposta `hello`. As duas consultas SRV reduzem a janela para uma resposta DNS instável, mas não eliminam a corrida entre a validação e a resolução interna do driver. A allowlist do código não substitui uma regra de saída de rede para impedir contatos TCP com hosts não permitidos. Configure também o firewall/egress do ambiente de teste para os hosts aprovados.
 
@@ -291,8 +291,10 @@ Possíveis respostas incluem `400` para corpo, validação ou ID inválidos; `40
 
 | Comando | Descrição |
 | --- | --- |
-| `npm run dev` | Inicia a API em modo de desenvolvimento e usa `MONGO_URI_DEVELOPMENT` |
+| `npm run dev` | Inicia a API com o MongoDB local de desenvolvimento |
 | `npm start` | Inicia a API em produção e exige `MONGO_URI_PRODUCTION` |
+| `npm run start:homologation` | Inicia a API com MongoDB e Cloudinary de homologação |
+| `npm run test:integration -- --check` | Valida a configuração de integração sem conectar aos serviços |
 | `npm test` | Executa os testes e gera o relatório de cobertura |
 | `npm run lint` | Verifica os arquivos de `src` com o ESLint |
 

@@ -28,17 +28,26 @@ function executarJest(ambiente) {
 }
 
 try {
-  const config = carregarAmbienteIntegracao();
-  const ambienteExecucao = { ...process.env };
-  const idExecucao = randomUUID().replaceAll("-", "");
+  const [opcao, ...argumentos] = process.argv.slice(2);
+  if (argumentos.length || (opcao !== undefined && opcao !== "--check")) {
+    throw new Error("Use somente --check para validar sem conexões.");
+  }
+  const config = carregarAmbienteIntegracao(process.env, [process.env]);
+  const idExecucao = process.env.TEST_RUN_ID ?? randomUUID().replaceAll("-", "");
+  const bancoExecucao = criarNomeBancoDaExecucao(idExecucao);
+  if (opcao === "--check") {
+    console.log(`Configuração do Atlas de testes válida. Cloudinary real: ${config.cloudinary ? "prefixo e configuração local validados" : "desativado"}.`);
+    if (process.env.TEST_RUN_ID !== undefined) console.log(`Banco de integração selecionado: ${bancoExecucao}.`);
+  } else {
+    const ambienteExecucao = { ...process.env };
+    ambienteExecucao.TEST_RUN_ID = idExecucao;
+    ambienteExecucao.TEST_RUN_DB_NAME = bancoExecucao;
+    ambienteExecucao.TEST_RUN_JWT_SECRET = randomBytes(32).toString("base64");
+    ambienteExecucao.TEST_RUN_CSRF_SECRET = randomBytes(32).toString("base64");
+    prepararAmbienteAplicacao(ambienteExecucao, config);
 
-  ambienteExecucao.TEST_RUN_ID = idExecucao;
-  ambienteExecucao.TEST_RUN_DB_NAME = criarNomeBancoDaExecucao(idExecucao);
-  ambienteExecucao.TEST_RUN_JWT_SECRET = randomBytes(32).toString("base64");
-  ambienteExecucao.TEST_RUN_CSRF_SECRET = randomBytes(32).toString("base64");
-  prepararAmbienteAplicacao(ambienteExecucao, config);
-
-  process.exitCode = await executarJest(ambienteExecucao);
+    process.exitCode = await executarJest(ambienteExecucao);
+  }
 } catch (erro) {
   console.error(`Não foi possível iniciar a suíte de integração: ${erro.message}`);
   process.exitCode = 1;

@@ -86,6 +86,22 @@ test("visitante recebe aprovada", async () => {
   trilha.status = "approved";
   expect((await request(app).get(publico)).status).toBe(200);
 });
+test("em homologação, GET e HEAD só aceitam fotos do prefixo reservado", async () => {
+  const ambiente = jest.replaceProperty(process, "env", {
+    ...process.env, APP_ENV: "homologation", HOMOLOGATION_CLOUDINARY_PREFIX: "homologacao",
+  });
+  try {
+    trilha.status = "approved";
+    expect((await request(app).head(publico)).status).toBe(404);
+    expect((await request(app).get(publico)).status).toBe(404);
+    expect(abrirFotoProtegida).not.toHaveBeenCalled();
+    trilha.fotos[0].publicId = `homologacao/trilhas/${id}/123e4567-e89b-12d3-a456-426614174000`;
+    expect((await request(app).head(publico)).status).toBe(200);
+    expect((await request(app).get(publico)).status).toBe(200);
+  } finally {
+    ambiente.restore();
+  }
+});
 test.each(["legacy_public", "migration_pending", "blocked", undefined])("bloqueia armazenamento %s", async (storageState) => {
   trilha.fotos[0].storageState = storageState;
   expect((await get(privado)).status).toBe(404);

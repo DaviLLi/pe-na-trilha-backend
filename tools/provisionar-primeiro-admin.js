@@ -23,7 +23,8 @@ async function executar() {
       throw new Error("ENTRADA");
     }
     if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error("TERMINAL");
-    if (!["development", "production"].includes(process.env.NODE_ENV)) throw new Error("AMBIENTE");
+    if (!["development", "production"].includes(process.env.NODE_ENV)
+      || (process.env.APP_ENV && process.env.APP_ENV !== process.env.NODE_ENV)) throw new Error("AMBIENTE");
     await import("../src/config/carregarAmbiente.js");
     const { obterUriMongo, conectarBanco } = await import("../src/config/database.js");
     const uri = new URL(obterUriMongo());
