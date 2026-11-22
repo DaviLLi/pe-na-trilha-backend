@@ -9,12 +9,21 @@ import { obterChaveJwt } from "../src/config/jwt.js";
 import AuthSession from "../src/models/AuthSession.js";
 import RefreshToken from "../src/models/RefreshToken.js";
 import Usuario from "../src/models/Usuario.js";
+import TentativaLogin from "../src/models/TentativaLogin.js";
+import { VERSAO_PRIVACIDADE, VERSAO_TERMOS } from "../src/config/documentosLegais.js";
 
 const segredoAnterior = process.env.JWT_SECRET;
 const segredoTeste = randomBytes(32).toString("base64");
 const segredoCsrfAnterior = process.env.CSRF_SECRET;
 const segredoCsrfTeste = randomBytes(32).toString("base64");
 const idUsuario = "507f1f77bcf86cd799439011";
+const aceite = { aceiteTermos: true, versaoTermos: VERSAO_TERMOS, versaoPoliticaPrivacidade: VERSAO_PRIVACIDADE };
+
+beforeEach(() => {
+  jest.spyOn(TentativaLogin.collection, "findOneAndUpdate").mockResolvedValue({
+    tentativas: 1, expiraEm: new Date(Date.now() + 300_000),
+  });
+});
 
 async function criarTokenUsuario() {
   return new SignJWT({ sid: "507f1f77bcf86cd799439099" })
@@ -66,6 +75,8 @@ describe("POST /usuarios", () => {
       email: " ANA@EXEMPLO.COM ",
       senha: "Trilha123!",
       perfil: "admin",
+      ...aceite,
+      aceitoEm: "2000-01-01",
     };
     const criarUsuario = jest.spyOn(Usuario, "create").mockImplementation(
       async (entrada) => ({
@@ -87,7 +98,13 @@ describe("POST /usuarios", () => {
       senha: "Trilha123!",
       fotoPerfil: null,
       perfil: "user",
+      aceiteDocumentos: {
+        versaoTermos: VERSAO_TERMOS,
+        versaoPoliticaPrivacidade: VERSAO_PRIVACIDADE,
+        aceitoEm: expect.any(Date),
+      },
     });
+    expect(criarUsuario.mock.calls[0][0].aceiteDocumentos.aceitoEm.getFullYear()).toBe(new Date().getFullYear());
     expect(resposta.body).toEqual({
       _id: "usuario-id",
       nomeCompleto: "Ana da Silva",
@@ -113,6 +130,17 @@ describe("POST /usuarios", () => {
     expect(criarUsuario).not.toHaveBeenCalled();
   });
 
+  test.each([{}, { ...aceite, aceiteTermos: "true" }, { ...aceite, versaoTermos: "antiga" }])(
+    "API rejeita cadastro que não comprova aceite vigente (%j)", async (documentos) => {
+      const criar = jest.spyOn(Usuario, "create");
+      const resposta = await request(app).post("/usuarios").send({
+        nomeCompleto: "Ana", nomeUsuario: "ana", email: "ana@exemplo.com", senha: "Trilha123!", ...documentos,
+      });
+      expect(resposta.status).toBe(400);
+      expect(criar).not.toHaveBeenCalled();
+    },
+  );
+
   test.each([
     ["email", "Este e-mail já está cadastrado."],
     ["nomeUsuario", "Este nome de usuário já está em uso."],
@@ -132,6 +160,7 @@ describe("POST /usuarios", () => {
         nomeUsuario: "Ana",
         email: "ana@exemplo.com",
         senha: "Trilha123!",
+        ...aceite,
       });
 
     expect(resposta.status).toBe(409);
@@ -152,11 +181,12 @@ describe("POST /usuarios", () => {
         nomeUsuario: "Ana",
         email: "ana@exemplo.com",
         senha: "Trilha123!",
+        ...aceite,
       });
 
     expect(resposta.status).toBe(500);
     expect(resposta.body).toEqual({ mensagem: "Erro interno do servidor." });
-    expect(logErro).toHaveBeenCalledWith(erro);
+    expect(logErro).toHaveBeenCalledWith("Falha interna da API.", { codigo: undefined });
   });
 
   test.each([
@@ -274,7 +304,7 @@ describe("POST /usuarios", () => {
 
     expect(resposta.status).toBe(500);
     expect(resposta.body).toEqual({ mensagem: "Erro interno do servidor." });
-    expect(logErro).toHaveBeenCalledWith(erro);
+    expect(logErro).toHaveBeenCalledWith("Falha interna da API.", { codigo: undefined });
   });
 });
 

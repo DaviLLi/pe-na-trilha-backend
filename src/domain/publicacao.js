@@ -1,3 +1,5 @@
+export const MAX_FOTOS_TRILHA = 5;
+
 export const STATUS_EDITAVEIS = ["pending", "rejected"];
 export const OPCOES = {
   tipoLocal: ["Trilha", "Praia", "Cachoeira"],

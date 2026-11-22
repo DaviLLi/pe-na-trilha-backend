@@ -1,17 +1,19 @@
 import { jest } from "@jest/globals";
 import { conectarComGateDeInfra } from "./integration/infraGate.js";
+import { BANCO_HOMOLOGACAO } from "../src/config/isolamentoMongo.js";
 
 const URI = "mongodb://mongo-test.internal:27017/pe_na_trilha_integration";
 const HOSTS = ["mongo-test.internal"];
 const RUN_ID = "a".repeat(32);
 
-function criarDb({ hosts = ["mongo-test.internal:27017"], marker = null } = {}) {
+function criarDb({ hosts = ["mongo-test.internal:27017"], marker = null, banco = `tst_${RUN_ID}` } = {}) {
   const eventos = [];
   const findMarker = jest.fn(async () => {
     eventos.push("marcador");
     return marker;
   });
   const db = {
+    databaseName: banco,
     eventos,
     admin: () => ({
       command: jest.fn(async () => {
@@ -95,6 +97,18 @@ describe("gate da infraestrutura MongoDB de integração", () => {
     expect(desconectar).toHaveBeenCalledTimes(1);
     expect(db.createCollection).not.toHaveBeenCalled();
     expect(executarTransacao).not.toHaveBeenCalled();
+  });
+
+  test("fecha conexão no banco de homologação antes de consultar o marcador", async () => {
+    const { db, findMarker } = criarDb({ banco: BANCO_HOMOLOGACAO, marker });
+    const desconectar = jest.fn();
+
+    await expect(conectarComGateDeInfra({
+      uri: URI, hostsPermitidos: HOSTS, runId: RUN_ID, conectar: async () => db, desconectar,
+    })).rejects.toThrow("não selecionou o banco isolado");
+
+    expect(findMarker).not.toHaveBeenCalled();
+    expect(desconectar).toHaveBeenCalledTimes(1);
   });
 
   test("retorna a conexão somente depois de SRV, topologia e marcador válidos", async () => {

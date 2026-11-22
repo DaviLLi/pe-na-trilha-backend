@@ -2,6 +2,7 @@ import {
   validarDestinosSrvEstaveis,
   verificarTopologiaMongo,
 } from "./topologia.js";
+import { criarNomeBancoDaExecucao, validarBancoConectado } from "./ambiente.js";
 
 export async function conectarComGateDeInfra({
   uri,
@@ -17,6 +18,7 @@ export async function conectarComGateDeInfra({
     await validarDestinosSrvEstaveis(uri, hostsPermitidos, resolver);
     conexaoTentada = true;
     const db = await conectar();
+    validarBancoConectado(db, criarNomeBancoDaExecucao(runId));
     const topologia = await verificarTopologiaMongo(db, hostsPermitidos);
     const marcador = await db.collection("__integration_run").findOne({
       _id: runId,

@@ -2,7 +2,8 @@ import { v2 as cloudinary } from "cloudinary";
 
 export function cloudinaryDisponivel() {
   return Boolean(
-    process.env.CLOUDINARY_CLOUD_NAME?.trim() &&
+    process.env.NODE_ENV !== "development" &&
+      process.env.CLOUDINARY_CLOUD_NAME?.trim() &&
       process.env.CLOUDINARY_API_KEY?.trim() &&
       process.env.CLOUDINARY_API_SECRET?.trim(),
   );

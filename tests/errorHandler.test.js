@@ -111,7 +111,7 @@ describe("tratarErros", () => {
     expect(res.json).toHaveBeenCalledWith({
       mensagem: "Erro interno do servidor.",
     });
-    expect(spyConsoleError).toHaveBeenCalledWith(erro);
+    expect(spyConsoleError).toHaveBeenCalledWith("Falha interna da API.", { codigo: undefined });
 
     spyConsoleError.mockRestore();
   });

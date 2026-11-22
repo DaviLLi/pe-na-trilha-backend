@@ -9,7 +9,7 @@ function requisicaoDeUsuario(req) {
 }
 
 export function tratarErros(erro, req, res, next) {
-  void next;
+  if (res.headersSent) return next(erro);
 
   if (erro.name === "MulterError" || erro.code === "LIMIT_FILE_SIZE") {
     const status = erro.code === "LIMIT_FILE_SIZE" ? 413 : 400;
@@ -68,6 +68,8 @@ export function tratarErros(erro, req, res, next) {
     return res.status(400).json({ mensagem: `ID de ${recurso} inválido.` });
   }
 
-  console.error(erro);
+  console.error("Falha interna da API.", {
+    codigo: Number.isInteger(erro.code) ? erro.code : undefined,
+  });
   return res.status(500).json({ mensagem: "Erro interno do servidor." });
 }

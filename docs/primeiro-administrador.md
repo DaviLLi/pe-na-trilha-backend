@@ -11,7 +11,7 @@ corpo do request ou de um token antigo.
 GET /trilhas/pendentes, POST /trilhas/:id/moderacao e fotos administrativas exigem
 admin no servidor. Mutações por cookies continuam exigindo CSRF. O frontend Admin
 não monta a fila para perfil user; a navegação mostra Administração somente para
-admin. Nenhuma rota HTTP nova foi criada.
+admin. O [gerenciamento de administradores](gerenciamento-administradores.md) tem rotas exclusivas do principal.
 
 ## Provisionamento operacional (não executado nesta implementação)
 
@@ -55,8 +55,8 @@ inicializações concorrentes e impede reutilização após remoção/rebaixamen
 primeiro administrador. A operação também recusa se já houver qualquer admin.
 Falha ou usuário não encontrado desfazem ambos. Exige MongoDB com suporte a transações
 (Atlas/replica set); não há fallback sem transação. O marcador guarda ID e data do
-provisionamento, sem senha. Não é ferramenta para criar administradores adicionais
-nem recuperação de conta: esses procedimentos continuam exigindo decisão própria.
+provisionamento, sem senha. Para administrar contas adicionais, consulte o
+[gerenciamento de administradores](gerenciamento-administradores.md).
 
 ## Aprovação e rejeição manual
 

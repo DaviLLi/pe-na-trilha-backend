@@ -5,16 +5,18 @@ assinatura, preset, tipo authenticated, agent, proxy, TLS ou resposta pública 5
 
 ## Um teste real, executado manualmente
 
-1. Na pasta do backend, iniciar uma nova instância com:
+1. Prepare o [ambiente isolado de homologação](ambientes.md). Na pasta do backend,
+   inicie a instância de homologação com o diagnóstico ativado:
 
    ```bash
-   CLOUDINARY_DIAGNOSTICO_403=1 npm run dev
+   CLOUDINARY_DIAGNOSTICO_403=1 npm run start:homologation
    ```
 
    A variável é apenas um opt-in de diagnóstico; não é credencial. Não precisa ser
    adicionada ao .env. Evite manter outra instância na mesma porta.
-2. Na interface, escolher uma publicação própria pending/rejected e enviar **uma**
-   imagem válida. Não usar seleção múltipla ou retentativa automática nesse teste.
+2. Na interface de homologação, use uma publicação sintética pendente ou rejeitada
+   e envie **uma** imagem sintética válida. Desative seleção múltipla e retentativa
+   automática nesse teste.
 3. Se a resposta remota for 403, procurar no terminal:
    `[TEMP Cloudinary 403 — remover após diagnóstico]`.
    O log pode aparecer depois do 502, quando o corpo remoto terminar de chegar.

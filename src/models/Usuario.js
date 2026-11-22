@@ -123,6 +123,14 @@ const usuarioSchema = new mongoose.Schema(
       enum: ["user", "admin"],
       default: "user",
     },
+    aceiteDocumentos: {
+      type: new mongoose.Schema({
+        versaoTermos: { type: String, required: true },
+        versaoPoliticaPrivacidade: { type: String, required: true },
+        aceitoEm: { type: Date, required: true },
+      }, { _id: false }),
+      select: false,
+    },
   },
   {
     timestamps: true,
@@ -131,6 +139,7 @@ const usuarioSchema = new mongoose.Schema(
       transform(_doc, ret) {
         delete ret.senha;
         delete ret.fotoPerfilPublicId;
+        delete ret.aceiteDocumentos;
         return ret;
       },
     },
@@ -138,6 +147,7 @@ const usuarioSchema = new mongoose.Schema(
       transform(_doc, ret) {
         delete ret.senha;
         delete ret.fotoPerfilPublicId;
+        delete ret.aceiteDocumentos;
         return ret;
       },
     },
@@ -152,6 +162,7 @@ export async function hashSenhaSeAlterada() {
   this.senha = await bcrypt.hash(this.senha, SALT_ROUNDS);
 }
 
+usuarioSchema.index({ fotoPerfilPublicId: 1 }, { sparse: true });
 usuarioSchema.pre("save", hashSenhaSeAlterada);
 
 for (const operacao of [

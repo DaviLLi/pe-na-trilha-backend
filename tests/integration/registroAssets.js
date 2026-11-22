@@ -1,15 +1,10 @@
-const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const PUBLIC_ID_GERADO = new RegExp(
-  `^pe-na-trilha/(?:perfis/${UUID}|trilhas/[0-9a-f]{24}/${UUID})$`,
-  "i",
-);
+import { validarImagemDaHomologacao } from "../../src/domain/identidadeImagem.js";
+
 const ID_EXECUCAO_VALIDO = /^[a-f0-9]{32}$/;
 const NOME_COLECAO_OPERACOES = "operacaoimagems";
 
-export function validarPublicIdDaExecucao(publicId) {
-  if (typeof publicId !== "string" || !PUBLIC_ID_GERADO.test(publicId)) {
-    throw new Error("O asset não possui publicId gerado pela aplicação.");
-  }
+export function validarPublicIdDaExecucao(publicId, runId) {
+  validarImagemDaHomologacao(publicId, runId ?? "");
   return publicId;
 }
 
@@ -36,7 +31,7 @@ export async function registrarAssetDaExecucao(db, runId, publicId) {
     throw new Error("O identificador do asset não corresponde à execução de integração ativa.");
   }
 
-  validarPublicIdDaExecucao(publicId);
+  validarPublicIdDaExecucao(publicId, runId);
   const marcador = await validarMarcadorDaExecucao(db, runIdAtivo);
 
   const operacaoImagem = await db.collection(NOME_COLECAO_OPERACOES).findOne({
@@ -91,7 +86,7 @@ export function validarRegistrosAssets(registros, runId) {
     throw new Error("O registro de assets contém dados de outra execução.");
   }
   for (const registro of registros) {
-    validarPublicIdDaExecucao(registro.publicId);
+    validarPublicIdDaExecucao(registro.publicId, runId);
     if ((registro.deliveryType !== undefined && !["upload", "authenticated", "private"].includes(registro.deliveryType))
       || (registro.resourceType !== undefined && registro.resourceType !== "image")) {
       throw new Error("O registro contém uma identidade de asset inválida.");

@@ -3,12 +3,11 @@ import { Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { once } from "node:events";
 import cloudinary, { configurarCloudinary } from "../config/cloudinary.js";
+import { FORMATO_VARIANTES, VARIANTES } from "../domain/fotoPublicacao.js";
+import { validarImagemDaHomologacao } from "../domain/identidadeImagem.js";
 
 export const LIMITE_ENTREGA_BYTES = 8 * 1024 * 1024;
-export const VARIANTES = Object.freeze({
-  miniatura: { width: 480, height: 360, crop: "limit" },
-  detalhe: { width: 1600, height: 1600, crop: "limit" },
-});
+export { VARIANTES };
 
 export function limitarTamanho(limite = LIMITE_ENTREGA_BYTES) {
   let recebido = 0;
@@ -23,6 +22,7 @@ export function limitarTamanho(limite = LIMITE_ENTREGA_BYTES) {
 
 export function abrirFotoProtegida(foto, variante, signal) {
   signal.throwIfAborted();
+  validarImagemDaHomologacao(foto.publicId);
   if (!configurarCloudinary()) {
     const erro = new Error("Serviço de imagens indisponível.");
     erro.status = 503;
@@ -31,8 +31,8 @@ export function abrirFotoProtegida(foto, variante, signal) {
   const endereco = new URL(cloudinary.url(foto.publicId, {
     secure: true, type: "authenticated", resource_type: "image", sign_url: true,
     private_cdn: false, secure_distribution: "res.cloudinary.com",
-    version: foto.version, format: "webp",
-    transformation: [{ ...VARIANTES[variante], quality: "auto", flags: "strip_profile" }],
+    version: foto.version, format: FORMATO_VARIANTES,
+    transformation: [{ ...VARIANTES[variante] }],
   }));
   if (endereco.protocol !== "https:" || endereco.hostname !== "res.cloudinary.com" || endereco.port) {
     throw new Error("Origem de imagem inválida.");

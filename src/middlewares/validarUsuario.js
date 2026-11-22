@@ -1,3 +1,5 @@
+import { VERSAO_PRIVACIDADE, VERSAO_TERMOS } from "../config/documentosLegais.js";
+
 const nomeUsuarioValido = /^\p{L}[\p{L}\p{M}]*$/u;
 const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -73,6 +75,13 @@ export function validarUsuario(req, res, next) {
     });
   }
 
+  if (entrada.aceiteTermos !== true) {
+    return res.status(400).json({ mensagem: "Aceite os Termos de Uso para criar a conta." });
+  }
+  if (entrada.versaoTermos !== VERSAO_TERMOS || entrada.versaoPoliticaPrivacidade !== VERSAO_PRIVACIDADE) {
+    return res.status(400).json({ mensagem: "Atualize a página para consultar os documentos vigentes." });
+  }
+
   req.body = {
     nomeCompleto: nomeCompleto.trim(),
     nomeUsuario: nomeUsuarioNormalizado,
@@ -80,6 +89,11 @@ export function validarUsuario(req, res, next) {
     senha,
     fotoPerfil: null,
     perfil: "user",
+    aceiteDocumentos: {
+      versaoTermos: VERSAO_TERMOS,
+      versaoPoliticaPrivacidade: VERSAO_PRIVACIDADE,
+      aceitoEm: new Date(),
+    },
   };
 
   return next();

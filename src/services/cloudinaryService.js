@@ -1,18 +1,38 @@
 import { diagnosticarUpload403Temporariamente } from "./diagnosticoUpload403Temporario.js";
 import { erroRespostaUploadInvalida } from "./diagnosticoUpload.js";
-import { fotoProtegida } from "../domain/fotoPublicacao.js";
+import { fotoProtegida, FORMATO_VARIANTES, VARIANTES } from "../domain/fotoPublicacao.js";
+import {
+  PASTA_HOMOLOGACAO,
+  apresentarUrlFotoPerfil,
+  escopoImagensHomologacao,
+  validarImagemDaHomologacao,
+  validarModoPastaHomologacao,
+} from "../domain/identidadeImagem.js";
 import { randomUUID } from "node:crypto";
 import cloudinary, { configurarCloudinary } from "../config/cloudinary.js";
 
+function prefixoImagens() {
+  return escopoImagensHomologacao() ?? "pe-na-trilha";
+}
+
 export function criarPublicIdFotoPerfil() {
-  return `pe-na-trilha/perfis/${randomUUID()}`;
+  return `${prefixoImagens()}/perfis/${randomUUID()}`;
 }
 
 export function criarPublicIdFotoTrilha(trilhaId) {
-  return `pe-na-trilha/trilhas/${trilhaId}/${randomUUID()}`;
+  return `${prefixoImagens()}/trilhas/${trilhaId}/${randomUUID()}`;
 }
 
 export function enviarImagem(buffer, publicId, { deliveryType = "upload" } = {}) {
+  validarImagemDaHomologacao(publicId);
+  const escopo = escopoImagensHomologacao();
+  let destino = { public_id: publicId };
+  if (escopo) {
+    const modo = validarModoPastaHomologacao(process.env.HOMOLOGATION_CLOUDINARY_FOLDER_MODE);
+    destino = modo === "dynamic"
+      ? { ...destino, asset_folder: PASTA_HOMOLOGACAO, use_asset_folder_as_public_id_prefix: false }
+      : { public_id: publicId.slice(PASTA_HOMOLOGACAO.length + 1), folder: PASTA_HOMOLOGACAO };
+  }
   if (!configurarCloudinary()) {
     throw new Error("Serviço de imagens indisponível.");
   }
@@ -20,9 +40,13 @@ export function enviarImagem(buffer, publicId, { deliveryType = "upload" } = {})
   return new Promise((resolve, reject) => {
     const criarStream = () => cloudinary.uploader.upload_stream(
       {
-        public_id: publicId,
+        ...destino,
         resource_type: "image",
-        ...(deliveryType === "authenticated" ? { type: "authenticated" } : {}),
+        ...(deliveryType === "authenticated" ? {
+          type: "authenticated",
+          eager: Object.values(VARIANTES).map((variante) => ({ ...variante, format: FORMATO_VARIANTES })),
+          eager_async: false,
+        } : {}),
         allowed_formats: ["jpg", "jpeg", "png", "webp"],
         overwrite: false,
         timeout: 120000,
@@ -33,7 +57,8 @@ export function enviarImagem(buffer, publicId, { deliveryType = "upload" } = {})
           return;
         }
 
-        if (!resultado?.secure_url || !resultado.public_id) {
+        if (!resultado?.secure_url || resultado.public_id !== publicId
+          || (destino.asset_folder && resultado.asset_folder !== undefined && resultado.asset_folder !== destino.asset_folder)) {
           reject(erroRespostaUploadInvalida());
           return;
         }
@@ -46,14 +71,19 @@ export function enviarImagem(buffer, publicId, { deliveryType = "upload" } = {})
             width: resultado.width, height: resultado.height, bytes: resultado.bytes,
             storageState: "ready",
           };
-          if (foto.publicId !== publicId || !fotoProtegida(foto)) {
+          if (!fotoProtegida(foto)) {
             reject(erroRespostaUploadInvalida());
             return;
           }
           resolve(foto);
           return;
         }
-        resolve({ secureUrl: resultado.secure_url, publicId: resultado.public_id });
+        const secureUrl = apresentarUrlFotoPerfil(resultado.secure_url, publicId);
+        if (!secureUrl) {
+          reject(erroRespostaUploadInvalida());
+          return;
+        }
+        resolve({ secureUrl, publicId: resultado.public_id });
       },
     );
     const stream = deliveryType === "authenticated"
@@ -64,6 +94,7 @@ export function enviarImagem(buffer, publicId, { deliveryType = "upload" } = {})
 }
 
 export async function excluirImagem(publicId, { resourceType = "image", deliveryType = "upload" } = {}) {
+  validarImagemDaHomologacao(publicId);
   if (!configurarCloudinary()) {
     throw new Error("Serviço de imagens indisponível.");
   }

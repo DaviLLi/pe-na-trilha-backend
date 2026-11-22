@@ -4,7 +4,9 @@ import { conectarBanco, obterUriMongo } from "./config/database.js";
 import { obterChaveJwt } from "./config/jwt.js";
 import { obterSegredoCsrf } from "./config/csrf.js";
 import { validarConfiguracaoCookies } from "./config/authCookies.js";
+import { obterCloudinaryHomologacao } from "./config/isolamentoCloudinary.js";
 import mongoose from "mongoose";
+import TentativaLogin from "./models/TentativaLogin.js";
 import {
   iniciarProcessadorOperacoesImagem,
   pararProcessadorOperacoesImagem,
@@ -17,10 +19,23 @@ let encerramento;
 async function iniciarServidor() {
   try {
     obterUriMongo();
+    if (process.env.APP_ENV === "homologation") {
+      Object.assign(process.env, obterCloudinaryHomologacao(process.env, [process.env]));
+      delete process.env.CLOUDINARY_URL;
+      delete process.env.CLOUDINARY_HOMOLOGACAO_RUN_ID;
+    }
     obterChaveJwt();
     obterSegredoCsrf();
     validarConfiguracaoCookies();
+  } catch (erro) {
+    console.error("Configuração da API recusada.", erro.message);
+    process.exitCode = 1;
+    return;
+  }
+
+  try {
     await conectarBanco();
+    await TentativaLogin.createIndexes();
     iniciarProcessadorOperacoesImagem();
 
     servidor = app.listen(PORT, () => {
@@ -30,7 +45,9 @@ async function iniciarServidor() {
     process.on("SIGINT", encerrarServidor);
     process.on("SIGTERM", encerrarServidor);
   } catch (erro) {
-    console.error("Não foi possível iniciar a API:", erro.message);
+    console.error("Não foi possível iniciar a API.", {
+      codigo: Number.isInteger(erro.code) ? erro.code : undefined,
+    });
     process.exit(1);
   }
 }

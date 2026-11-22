@@ -1,11 +1,18 @@
 import { CAMPOS_BASICOS, CAMPOS_DETALHES } from "./publicacao.js";
+import { apresentarUrlFotoPerfil, imagemNoEscopo } from "./identidadeImagem.js";
+
+export const FORMATO_VARIANTES = "webp";
+export const VARIANTES = Object.freeze({
+  miniatura: Object.freeze({ width: 480, height: 360, crop: "limit", quality: "auto", flags: "strip_profile" }),
+  detalhe: Object.freeze({ width: 1600, height: 1600, crop: "limit", quality: "auto", flags: "strip_profile" }),
+});
 
 const CAMPOS_PUBLICOS = ["_id", ...CAMPOS_BASICOS, ...CAMPOS_DETALHES, "proprietario", "status", "createdAt", "updatedAt"];
 
 export function fotoProtegida(foto) {
   return foto.storageState === "ready" && foto.deliveryType === "authenticated"
     && foto.resourceType === "image" && typeof foto.assetId === "string" && foto.assetId.length > 0
-    && typeof foto.publicId === "string" && foto.publicId.length > 0
+    && typeof foto.publicId === "string" && foto.publicId.length > 0 && imagemNoEscopo(foto.publicId)
     && Number.isInteger(foto.version) && foto.version > 0
     && ["jpg", "jpeg", "png", "webp"].includes(foto.format)
     && Number.isInteger(foto.width) && foto.width > 0
@@ -38,7 +45,11 @@ export function apresentarTrilha(trilha, contexto = "publico") {
     resposta.duracao = { horas: resposta.duracao.horas, minutos: resposta.duracao.minutos };
   }
   if (!privado && dados.proprietario?.nomeUsuario) {
-    resposta.autor = { nomeUsuario: dados.proprietario.nomeUsuario, nomeCompleto: dados.proprietario.nomeCompleto, fotoPerfil: dados.proprietario.fotoPerfil || null };
+    resposta.autor = {
+      nomeUsuario: dados.proprietario.nomeUsuario,
+      nomeCompleto: dados.proprietario.nomeCompleto,
+      fotoPerfil: apresentarUrlFotoPerfil(dados.proprietario.fotoPerfil) || null,
+    };
   }
   if (!privado && resposta.proprietario && typeof resposta.proprietario === "object") {
     resposta.proprietario = resposta.proprietario._id || resposta.proprietario;

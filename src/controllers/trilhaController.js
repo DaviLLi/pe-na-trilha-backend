@@ -1,9 +1,24 @@
 import { filtroBuscaPublica } from "../domain/buscaPublicacoes.js";
 import mongoose from "mongoose";
 import { apresentarTrilha, identidadeLimpeza } from "../domain/fotoPublicacao.js";
+import { escopoImagensHomologacao, validarImagemDaHomologacao } from "../domain/identidadeImagem.js";
 import { CAMPOS_BASICOS, CARACTERISTICAS, STATUS_EDITAVEIS } from "../domain/publicacao.js";
 import OperacaoImagem from "../models/OperacaoImagem.js";
 import Trilha from "../models/Trilha.js";
+
+// Documentos antigos e cadastros sem fotos não têm reserva de upload.
+const pendenteParaModeracao = { status: "pending", fotosPrevistas: null };
+const formatoRevisao = /^(legacy|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}):(none|\d{1,15})$/;
+
+function filtroDaRevisao(revisao) {
+  const partes = typeof revisao === "string" && formatoRevisao.exec(revisao);
+  if (!partes) return null;
+  const [, identificador, instante] = partes;
+  return {
+    revisaoModeracao: identificador === "legacy" ? null : identificador,
+    updatedAt: instante === "none" ? null : new Date(Number(instante)),
+  };
+}
 
 export async function listarTrilhas(req, res, next) {
   try {
@@ -70,7 +85,7 @@ export async function atualizarTrilha(req, res, next) {
       return res.status(400).json({ mensagem: "Característica principal incompatível com o tipo de local." });
     }
     const trilha = await Trilha.findOneAndUpdate(
-      { ...filtro, status: atual.status, updatedAt: atual.updatedAt },
+      { ...filtro, status: atual.status, updatedAt: atual.updatedAt ?? null, revisaoModeracao: atual.revisaoModeracao ?? null },
       { $set: dados },
       { returnDocument: "after", runValidators: true },
     );
@@ -87,10 +102,15 @@ export async function excluirTrilha(req, res, next) {
   try {
     sessao = await mongoose.startSession();
     await sessao.withTransaction(async () => {
-      const trilha = await Trilha.findOneAndDelete({
+      const filtro = {
         _id: req.params.id,
         proprietario: req.usuario._id,
-      }).session(sessao);
+      };
+      if (escopoImagensHomologacao()) {
+        const atual = await Trilha.findOne(filtro).session(sessao);
+        for (const foto of atual?.fotos || []) validarImagemDaHomologacao(foto.publicId);
+      }
+      const trilha = await Trilha.findOneAndDelete(filtro).session(sessao);
 
       if (!trilha) {
         const erro = new Error("Trilha não encontrada.");
@@ -155,27 +175,35 @@ export async function listarMinhasTrilhas(req, res, next) {
 
 export async function moderarTrilha(req, res, next) {
   try {
-    const { status, motivo } = req.body || {};
-    if (Object.keys(req.body || {}).some((campo) => !["status", "motivo"].includes(campo)) || !["approved", "rejected"].includes(status)
+    const { status, motivo, revisao } = req.body || {};
+    if (Object.keys(req.body || {}).some((campo) => !["status", "motivo", "revisao"].includes(campo)) || !["approved", "rejected"].includes(status)
       || (status === "rejected" && (typeof motivo !== "string" || !motivo.trim() || motivo.length > 2000))
       || (status === "approved" && motivo !== undefined)) {
       return res.status(400).json({ mensagem: "Decisão inválida; rejeição exige motivo de até 2000 caracteres." });
     }
+    const filtroRevisao = filtroDaRevisao(revisao);
+    if (!filtroRevisao) {
+      return res.status(400).json({ mensagem: "Informe a revisão da publicação. Atualize a fila de moderação." });
+    }
     const trilha = await Trilha.findOneAndUpdate(
-      { _id: req.params.id, status: "pending" },
+      { _id: req.params.id, ...pendenteParaModeracao, ...filtroRevisao },
       { $set: { status, motivoRejeicao: status === "rejected" ? motivo.trim() : null },
         $push: { historicoModeracao: { acao: status, usuario: req.usuario._id, motivo: status === "rejected" ? motivo.trim() : null, data: new Date() } } },
       { returnDocument: "after", runValidators: true },
     );
-    if (!trilha) return res.status(409).json({ mensagem: "Publicação inexistente ou não está pendente." });
+    if (!trilha) return res.status(409).json({ mensagem: "A publicação mudou ou já foi moderada. Atualize a fila para revisá-la." });
     return res.json(apresentarTrilha(trilha, "admin"));
   } catch (erro) { return next(erro); }
 }
 
 export async function listarPendentes(_req, res, next) {
   try {
-    const trilhas = await Trilha.find({ status: "pending" }).sort({ createdAt: 1 });
-    return res.json(trilhas.map((trilha) => apresentarTrilha(trilha, "admin")));
+    const trilhas = await Trilha.find(pendenteParaModeracao).sort({ createdAt: 1 });
+    res.set("Cache-Control", "private, no-store");
+    return res.json(trilhas.map((trilha) => ({
+      ...apresentarTrilha(trilha, "admin"),
+      revisao: `${trilha.revisaoModeracao ?? "legacy"}:${trilha.updatedAt?.getTime() ?? "none"}`,
+    })));
   }
   catch (erro) { return next(erro); }
 }

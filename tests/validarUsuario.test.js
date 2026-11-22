@@ -1,5 +1,6 @@
 import { jest } from "@jest/globals";
 import { validarUsuario } from "../src/middlewares/validarUsuario.js";
+import { VERSAO_PRIVACIDADE, VERSAO_TERMOS } from "../src/config/documentosLegais.js";
 
 function criarRespostaMock() {
   const res = {
@@ -17,6 +18,9 @@ function criarRequisicao(overrides = {}) {
       nomeUsuario: "ÁNA",
       email: " ANA@EXEMPLO.COM ",
       senha: "Trilha123!",
+      aceiteTermos: true,
+      versaoTermos: VERSAO_TERMOS,
+      versaoPoliticaPrivacidade: VERSAO_PRIVACIDADE,
       ...overrides,
     },
   };
@@ -36,6 +40,9 @@ describe("validarUsuario", () => {
       senha: "Trilha123!",
       fotoPerfil: null,
       perfil: "user",
+      aceiteDocumentos: {
+        versaoTermos: VERSAO_TERMOS, versaoPoliticaPrivacidade: VERSAO_PRIVACIDADE, aceitoEm: expect.any(Date),
+      },
     });
     expect(next).toHaveBeenCalledTimes(1);
   });

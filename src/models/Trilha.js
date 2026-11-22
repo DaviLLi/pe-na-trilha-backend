@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
+import { randomUUID } from "node:crypto";
 import { apresentarFoto } from "../domain/fotoPublicacao.js";
-import { OPCOES, CARACTERISTICAS, duracaoValida } from "../domain/publicacao.js";
+import { OPCOES, CARACTERISTICAS, duracaoValida, MAX_FOTOS_TRILHA } from "../domain/publicacao.js";
 
 const fotoTrilhaSchema = new mongoose.Schema(
   {
@@ -21,12 +22,14 @@ const fotoTrilhaSchema = new mongoose.Schema(
 
 function serializarTrilha(_doc, ret) {
   ret.fotos = (ret.fotos || []).map((foto) => apresentarFoto(foto, ret._id));
+  delete ret.revisaoModeracao;
   return ret;
 }
 
 const trilhaSchema = new mongoose.Schema(
   {
     status: { type: String, enum: ["pending", "approved", "rejected"], default: "pending", required: true, index: true },
+    revisaoModeracao: { type: String },
     motivoRejeicao: { type: String, default: null },
     historicoModeracao: { type: [{
       acao: { type: String, enum: ["approved", "rejected", "resubmitted"], required: true },
@@ -57,6 +60,7 @@ const trilhaSchema = new mongoose.Schema(
       ref: "Usuario",
       required: true,
     },
+    fotosPrevistas: { type: Number, min: 1, max: MAX_FOTOS_TRILHA, validate: Number.isInteger },
     fotos: {
       type: [fotoTrilhaSchema],
       default: [],
@@ -69,6 +73,15 @@ const trilhaSchema = new mongoose.Schema(
     toObject: { transform: serializarTrilha },
   },
 );
+
+// Troca a revisão mesmo quando dois pedidos escrevem no mesmo milissegundo.
+trilhaSchema.index({ "fotos.publicId": 1 }, { sparse: true });
+trilhaSchema.pre("save", function atualizarRevisaoDocumento() {
+  if (this.isNew || this.isModified()) this.revisaoModeracao = randomUUID();
+});
+trilhaSchema.pre(["findOneAndUpdate", "updateOne"], function atualizarRevisaoConsulta() {
+  this.set("revisaoModeracao", randomUUID());
+});
 
 const Trilha = mongoose.model("Trilha", trilhaSchema);
 

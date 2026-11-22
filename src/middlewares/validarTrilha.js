@@ -1,10 +1,11 @@
-import { CAMPOS_BASICOS, CAMPOS_DETALHES, OPCOES, CARACTERISTICAS, duracaoValida } from "../domain/publicacao.js";
+import { CAMPOS_BASICOS, CAMPOS_DETALHES, OPCOES, CARACTERISTICAS, duracaoValida, MAX_FOTOS_TRILHA } from "../domain/publicacao.js";
 
 function validar(req, res, next, criacao) {
   const entrada = req.body;
   const falhar = (mensagem) => res.status(400).json({ mensagem });
   if (!entrada || typeof entrada !== "object" || Array.isArray(entrada)) return falhar("Dados da publicação inválidos.");
   const permitidos = [...CAMPOS_BASICOS, ...CAMPOS_DETALHES];
+  if (criacao) permitidos.push("fotosPrevistas");
   // Mantém a compatibilidade de criação: autoria sempre vem da autenticação.
   const campos = Object.keys(entrada).filter((campo) => !(criacao && campo === "proprietario"));
   if (!campos.length || campos.some((campo) => !permitidos.includes(campo))) return falhar("Campos da publicação não permitidos.");
@@ -25,6 +26,13 @@ function validar(req, res, next, criacao) {
       if (!opcoes.includes(valor)) return falhar(`Valor inválido para ${campo}.`);
     }
     dados[campo] = valor;
+  }
+  if (criacao && Object.hasOwn(entrada, "fotosPrevistas")) {
+    const quantidade = entrada.fotosPrevistas;
+    if (!Number.isInteger(quantidade) || quantidade < 1 || quantidade > MAX_FOTOS_TRILHA) {
+      return falhar("Quantidade de fotos previstas inválida.");
+    }
+    dados.fotosPrevistas = quantidade;
   }
   req.body = dados;
   return next();

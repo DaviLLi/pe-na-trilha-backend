@@ -4,14 +4,20 @@ import {
   validarAmbienteIntegracao,
   validarBancoDaExecucao,
 } from "./integration/ambiente.js";
+import { validarCloudinaryHomologacao } from "../src/config/isolamentoCloudinary.js";
+import { BANCO_HOMOLOGACAO, HOST_ATLAS_PRODUCAO, HOST_ATLAS_TESTES } from "../src/config/isolamentoMongo.js";
 
 const ambienteValido = {
   TEST_ENVIRONMENT: "integration",
-  TEST_MONGO_URI: "mongodb://localhost:27017/pe_na_trilha_integration",
-  TEST_MONGO_ALLOWED_HOSTS: "localhost",
-  TEST_CLOUDINARY_CLOUD_NAME: "cloud-test",
-  TEST_CLOUDINARY_API_KEY: "test-key",
-  TEST_CLOUDINARY_API_SECRET: "test-secret",
+  TEST_MONGO_URI: `mongodb+srv://${HOST_ATLAS_TESTES}/pe_na_trilha_integration`,
+  TEST_MONGO_ALLOWED_HOSTS: HOST_ATLAS_TESTES,
+};
+const mediaHomologacao = {
+  HOMOLOGATION_CLOUDINARY_CLOUD_NAME: "fixture-homol",
+  HOMOLOGATION_CLOUDINARY_API_KEY: "fixture-key",
+  HOMOLOGATION_CLOUDINARY_API_SECRET: "fixture-secret",
+  HOMOLOGATION_CLOUDINARY_PREFIX: "homologacao/",
+  HOMOLOGATION_CLOUDINARY_FOLDER_MODE: "dynamic",
 };
 
 describe("validação da configuração da suíte de integração", () => {
@@ -24,20 +30,7 @@ describe("validação da configuração da suíte de integração", () => {
     expect(() => validarAmbienteIntegracao({
       TEST_ENVIRONMENT: "integration",
       MONGO_URI: ambienteValido.TEST_MONGO_URI,
-      CLOUDINARY_CLOUD_NAME: ambienteValido.TEST_CLOUDINARY_CLOUD_NAME,
-      CLOUDINARY_API_KEY: ambienteValido.TEST_CLOUDINARY_API_KEY,
-      CLOUDINARY_API_SECRET: ambienteValido.TEST_CLOUDINARY_API_SECRET,
     })).toThrow("A variável TEST_MONGO_URI é obrigatória.");
-
-    expect(() => validarAmbienteIntegracao({
-      ...ambienteValido,
-      TEST_CLOUDINARY_CLOUD_NAME: undefined,
-      TEST_CLOUDINARY_API_KEY: undefined,
-      TEST_CLOUDINARY_API_SECRET: undefined,
-      CLOUDINARY_CLOUD_NAME: "normal-cloud",
-      CLOUDINARY_API_KEY: "normal-key",
-      CLOUDINARY_API_SECRET: "normal-secret",
-    })).toThrow("A variável TEST_CLOUDINARY_CLOUD_NAME é obrigatória para a suíte de integração.");
   });
 
   test("remove URIs normais antes de preparar o processo dos testes de integração", () => {
@@ -45,6 +38,8 @@ describe("validação da configuração da suíte de integração", () => {
       MONGO_URI: "mongodb://legacy/db",
       MONGO_URI_DEVELOPMENT: "mongodb://development/db",
       MONGO_URI_PRODUCTION: "mongodb://production/db",
+      MONGO_URI_HOMOLOGATION: "mongodb://homologation/db",
+      CLOUDINARY_API_SECRET: "segredo-normal-ignorado",
       JWT_SECRET: "segredo-normal",
       CSRF_SECRET: "csrf-normal",
     };
@@ -55,6 +50,8 @@ describe("validação da configuração da suíte de integração", () => {
     expect(ambiente).not.toHaveProperty("MONGO_URI");
     expect(ambiente).not.toHaveProperty("MONGO_URI_DEVELOPMENT");
     expect(ambiente).not.toHaveProperty("MONGO_URI_PRODUCTION");
+    expect(ambiente).not.toHaveProperty("MONGO_URI_HOMOLOGATION");
+    expect(ambiente).not.toHaveProperty("CLOUDINARY_API_SECRET");
     expect(ambiente.JWT_SECRET).not.toBe("segredo-normal");
     expect(ambiente.CSRF_SECRET).not.toBe("csrf-normal");
     expect(Buffer.byteLength(ambiente.CSRF_SECRET, "utf8")).toBeGreaterThanOrEqual(32);
@@ -63,7 +60,7 @@ describe("validação da configuração da suíte de integração", () => {
   test("exige banco com marcador de teste", () => {
     expect(() => validarAmbienteIntegracao({
       ...ambienteValido,
-      TEST_MONGO_URI: "mongodb://localhost:27017/pe_na_trilha",
+      TEST_MONGO_URI: `mongodb+srv://${HOST_ATLAS_TESTES}/pe_na_trilha`,
     })).toThrow("O nome do banco em TEST_MONGO_URI precisa conter um marcador de teste válido.");
   });
 
@@ -71,19 +68,51 @@ describe("validação da configuração da suíte de integração", () => {
     expect(() => validarAmbienteIntegracao({
       ...ambienteValido,
       TEST_MONGO_ALLOWED_HOSTS: "",
-    })).toThrow("TEST_MONGO_ALLOWED_HOSTS deve conter hosts explícitos.");
+    })).toThrow("TEST_MONGO_ALLOWED_HOSTS deve conter somente hosts explícitos do Atlas de testes.");
 
     expect(() => validarAmbienteIntegracao({
       ...ambienteValido,
-      TEST_MONGO_ALLOWED_HOSTS: "outro-host.local",
+      TEST_MONGO_ALLOWED_HOSTS: `fixture-novo.${HOST_ATLAS_TESTES.split(".").slice(1).join(".")}`,
     })).toThrow("O host de TEST_MONGO_URI não está na allowlist.");
   });
 
-  test("exige todas as credenciais de Cloudinary de teste", () => {
-    expect(() => validarAmbienteIntegracao({
+  test("exige credenciais exclusivas quando o modo real é pedido", () => {
+    expect(() => validarCloudinaryHomologacao({
+      ...mediaHomologacao, HOMOLOGATION_CLOUDINARY_API_SECRET: "",
+    }, [])).toThrow("Informe HOMOLOGATION_CLOUDINARY_API_SECRET");
+    expect(() => validarCloudinaryHomologacao({
+      ...mediaHomologacao, HOMOLOGATION_CLOUDINARY_FOLDER_MODE: "",
+    }, [])).toThrow("HOMOLOGATION_CLOUDINARY_FOLDER_MODE");
+    expect(() => validarCloudinaryHomologacao({
+      ...mediaHomologacao, HOMOLOGATION_CLOUDINARY_PREFIX: "pe-na-trilha/",
+    }, [])).toThrow("HOMOLOGATION_CLOUDINARY_PREFIX");
+  });
+
+  test("aceita Cloud Name compartilhado e recusa a chave de produção quando conhecida", () => {
+    expect(validarCloudinaryHomologacao(mediaHomologacao, [{
+      CLOUDINARY_CLOUD_NAME: "fixture-homol", CLOUDINARY_API_KEY: "outra-chave",
+    }])).toMatchObject({ CLOUDINARY_CLOUD_NAME: "fixture-homol", HOMOLOGATION_CLOUDINARY_PREFIX: "homologacao" });
+    expect(() => validarCloudinaryHomologacao(mediaHomologacao, [{ CLOUDINARY_API_KEY: "fixture-key" }]))
+      .toThrow("API Key própria");
+    expect(() => validarCloudinaryHomologacao(mediaHomologacao, [{ CLOUDINARY_URL: "cloudinary://fixture-key:secreto@fixture-homol" }]))
+      .toThrow("API Key própria");
+  });
+
+  test("injeta escopo da execução e remove configuração Cloudinary herdada do processo", () => {
+    const ambiente = {
       ...ambienteValido,
-      TEST_CLOUDINARY_API_SECRET: "",
-    })).toThrow("A variável TEST_CLOUDINARY_API_SECRET é obrigatória para a suíte de integração.");
+      TEST_CLOUDINARY_REAL: "1",
+      TEST_RUN_ID: "a".repeat(32),
+      TEST_RUN_DB_NAME: criarNomeBancoDaExecucao("a".repeat(32)),
+      CLOUDINARY_URL: "cloudinary://sintetico:ficticio@outro",
+      CLOUDINARY_DIAGNOSTICO_403: "1",
+    };
+    const cloudinary = validarCloudinaryHomologacao(mediaHomologacao, []);
+    prepararAmbienteAplicacao(ambiente, { ...validarAmbienteIntegracao(ambiente), cloudinary });
+    expect(ambiente.CLOUDINARY_HOMOLOGACAO_RUN_ID).toBe(ambiente.TEST_RUN_ID);
+    expect(ambiente.CLOUDINARY_CLOUD_NAME).toBe(mediaHomologacao.HOMOLOGATION_CLOUDINARY_CLOUD_NAME);
+    expect(ambiente).not.toHaveProperty("CLOUDINARY_URL");
+    expect(ambiente).not.toHaveProperty("CLOUDINARY_DIAGNOSTICO_403");
   });
 
   test("retorna a configuração validada sem consultar variáveis normais", () => {
@@ -94,8 +123,24 @@ describe("validação da configuração da suíte de integração", () => {
     });
 
     expect(config.bancoBase).toBe("pe_na_trilha_integration");
-    expect(config.hostMongo).toBe("localhost");
-    expect(config.cloudinary.TEST_CLOUDINARY_API_SECRET).toBe("test-secret");
+    expect(config.hostMongo).toBe(HOST_ATLAS_TESTES);
+    expect(config.cloudinary).toBeUndefined();
+  });
+
+  test("recusa produção ainda que usuário, banco e allowlist aparentem ser de testes", () => {
+    expect(() => validarAmbienteIntegracao({
+      ...ambienteValido, TEST_MONGO_URI: `mongodb+srv://fixture:fixture@${HOST_ATLAS_PRODUCAO}/pe_na_trilha_integration`,
+      TEST_MONGO_ALLOWED_HOSTS: HOST_ATLAS_PRODUCAO,
+    })).toThrow("seed SRV do Atlas de testes");
+    expect(() => validarAmbienteIntegracao({
+      ...ambienteValido, TEST_MONGO_ALLOWED_HOSTS: `${HOST_ATLAS_TESTES},${HOST_ATLAS_PRODUCAO}`,
+    })).toThrow("somente hosts explícitos do Atlas de testes");
+  });
+
+  test("recusa o banco de homologação na URI de integração", () => {
+    expect(() => validarAmbienteIntegracao({
+      ...ambienteValido, TEST_MONGO_URI: `mongodb+srv://${HOST_ATLAS_TESTES}/${BANCO_HOMOLOGACAO}`,
+    })).toThrow("O nome do banco em TEST_MONGO_URI precisa conter um marcador de teste válido.");
   });
 
   test("aceita somente o nome de banco associado ao identificador da execução", () => {

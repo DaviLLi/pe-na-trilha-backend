@@ -1,33 +1,53 @@
 import { jest } from "@jest/globals";
 import https from "node:https";
+import { readFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import cloudinary from "../src/config/cloudinary.js";
-import { enviarImagem, excluirImagem } from "../src/services/cloudinaryService.js";
-import { abrirFotoProtegida, limitarTamanho, LIMITE_ENTREGA_BYTES } from "../src/services/entregaFotoService.js";
-const nomes = ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"];
+import { apresentarUrlFotoPerfil } from "../src/domain/identidadeImagem.js";
+import { criarPublicIdFotoPerfil, criarPublicIdFotoTrilha, enviarImagem, excluirImagem } from "../src/services/cloudinaryService.js";
+import { abrirFotoProtegida, limitarTamanho, LIMITE_ENTREGA_BYTES, VARIANTES } from "../src/services/entregaFotoService.js";
+const nomes = [
+  "CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET", "CLOUDINARY_HOMOLOGACAO_RUN_ID",
+  "APP_ENV", "HOMOLOGATION_CLOUDINARY_PREFIX", "HOMOLOGATION_CLOUDINARY_FOLDER_MODE",
+];
 let anterior;
 const resultado = { secure_url: "https://res.cloudinary.com/test/foto", public_id: "foto", asset_id: "asset", resource_type: "image", type: "authenticated", version: 1, format: "webp", width: 800, height: 600, bytes: 100 };
 beforeEach(() => {
   anterior = nomes.map((nome) => process.env[nome]);
-  nomes.forEach((nome) => { process.env[nome] = "teste"; });
+  nomes.slice(0, 3).forEach((nome) => { process.env[nome] = "teste"; });
+  nomes.slice(3).forEach((nome) => { delete process.env[nome]; });
 });
 afterEach(() => {
   jest.restoreAllMocks();
   nomes.forEach((nome, i) => { if (anterior[i] === undefined) delete process.env[nome]; else process.env[nome] = anterior[i]; });
 });
 test("upload de publicação exige authenticated e valida metadados; perfil mantém contrato público", async () => {
+  process.env.APP_ENV = "production";
+  process.env.CLOUDINARY_HOMOLOGACAO_RUN_ID = "a".repeat(32);
+  process.env.HOMOLOGATION_CLOUDINARY_PREFIX = "homologacao/";
   const upload = jest.spyOn(cloudinary.uploader, "upload_stream").mockImplementation((opcoes, callback) => {
     callback(null, resultado);
     return { end: jest.fn() };
   });
   const foto = await enviarImagem(Buffer.from("foto"), "foto", { deliveryType: "authenticated" });
-  expect(upload.mock.calls[0][0]).toMatchObject({ type: "authenticated", resource_type: "image", overwrite: false });
+  const opcoes = upload.mock.calls[0][0];
+  expect(opcoes).toMatchObject({ type: "authenticated", resource_type: "image", overwrite: false, eager_async: false });
+  expect(opcoes).not.toHaveProperty("asset_folder");
+  expect(criarPublicIdFotoPerfil()).toMatch(/^pe-na-trilha\/perfis\//);
+  const eager = cloudinary.utils.build_eager(opcoes.eager).split("|");
+  const urls = Object.values(VARIANTES).map((transformacao) => {
+    const url = new URL(cloudinary.url("foto", { type: "authenticated", version: 1, format: "webp", transformation: [transformacao] }));
+    return `${url.pathname.split("/").at(-3)}/${url.pathname.split(".").at(-1)}`;
+  });
+  expect(eager).toEqual(urls);
+  expect(eager).toHaveLength(2);
   expect(foto).toMatchObject({ assetId: "asset", deliveryType: "authenticated", storageState: "ready", version: 1 });
   expect(foto).not.toHaveProperty("secureUrl");
   const perfil = await enviarImagem(Buffer.from("perfil"), "foto");
   expect(upload.mock.calls[1][0]).not.toHaveProperty("type");
+  expect(upload.mock.calls[1][0]).not.toHaveProperty("eager");
   expect(perfil).toEqual({ secureUrl: resultado.secure_url, publicId: "foto" });
 });
 test.each([{ type: "upload" }, { asset_id: undefined }, { public_id: "outro" }, { version: undefined }])("recusa resposta de upload não verificada %j", async (alteracoes) => {
@@ -46,6 +66,87 @@ test("exclusão distingue authenticated e mantém exclusão de perfil", async ()
   expect(destroy).toHaveBeenLastCalledWith("foto", { resource_type: "image", type: "authenticated", invalidate: true, timeout: 120000 });
   await excluirImagem("perfil");
   expect(destroy).toHaveBeenLastCalledWith("perfil", { resource_type: "image", invalidate: true, timeout: 120000 });
+});
+test("homologação gera IDs e bloqueia operações de outro escopo antes do SDK", async () => {
+  const runId = "a".repeat(32);
+  process.env.CLOUDINARY_HOMOLOGACAO_RUN_ID = runId;
+  process.env.HOMOLOGATION_CLOUDINARY_PREFIX = "homologacao";
+  const prefixo = `homologacao/integracao/${runId}/`;
+  const idPerfil = criarPublicIdFotoPerfil();
+  expect(idPerfil.startsWith(prefixo + "perfis/")).toBe(true);
+  expect(criarPublicIdFotoTrilha("a".repeat(24)).startsWith(prefixo + "trilhas/")).toBe(true);
+  const upload = jest.spyOn(cloudinary.uploader, "upload_stream");
+  const destroy = jest.spyOn(cloudinary.uploader, "destroy").mockResolvedValue({ result: "ok" });
+  const get = jest.spyOn(https, "get");
+  const outro = idPerfil.replace(runId, "b".repeat(32));
+  expect(() => enviarImagem(Buffer.from("foto"), outro)).toThrow("fora do escopo");
+  expect(() => abrirFotoProtegida({ publicId: outro }, "detalhe", new AbortController().signal))
+    .toThrow("fora do escopo");
+  await expect(excluirImagem(outro)).rejects.toThrow("fora do escopo");
+  expect(upload).not.toHaveBeenCalled();
+  expect(get).not.toHaveBeenCalled();
+  expect(destroy).not.toHaveBeenCalled();
+  await excluirImagem(idPerfil);
+  expect(destroy).toHaveBeenCalledWith(idPerfil, expect.objectContaining({ resource_type: "image" }));
+});
+
+test.each(["dynamic", "fixed"])("upload sintético de homologação usa ID e pasta reservados em modo %s", async (modo) => {
+  process.env.APP_ENV = "homologation";
+  process.env.HOMOLOGATION_CLOUDINARY_PREFIX = "homologacao/";
+  process.env.HOMOLOGATION_CLOUDINARY_FOLDER_MODE = modo;
+  const id = criarPublicIdFotoPerfil();
+  const trilhaId = criarPublicIdFotoTrilha("a".repeat(24));
+  const url = `https://res.cloudinary.com/teste/image/upload/v1/${id}.png`;
+  const imagem = readFileSync(new URL("./integration/fixtures/imagens-homologacao/sintetica.png", import.meta.url));
+  const end = jest.fn();
+  const upload = jest.spyOn(cloudinary.uploader, "upload_stream").mockImplementation((opcoes, callback) => {
+    callback(null, opcoes.type ? { ...resultado, public_id: trilhaId } : { ...resultado, secure_url: url, public_id: id });
+    return { end };
+  });
+  await expect(enviarImagem(imagem, id)).resolves.toEqual({ secureUrl: url, publicId: id });
+  await expect(enviarImagem(imagem, trilhaId, { deliveryType: "authenticated" }))
+    .resolves.toMatchObject({ publicId: trilhaId, deliveryType: "authenticated" });
+  const destino = (publicId) => modo === "dynamic"
+    ? { public_id: publicId, asset_folder: "homologacao", use_asset_folder_as_public_id_prefix: false }
+    : { public_id: publicId.slice("homologacao/".length), folder: "homologacao" };
+  expect(id).toMatch(/^homologacao\/perfis\//);
+  expect(upload.mock.calls[0][0]).toMatchObject({ ...destino(id), overwrite: false });
+  expect(upload.mock.calls[1][0]).toMatchObject({ ...destino(trilhaId), type: "authenticated", overwrite: false });
+  expect(end).toHaveBeenCalledWith(imagem);
+});
+
+test("servidor de homologação bloqueia IDs de produção, prefixo parecido, travessia e outra execução", async () => {
+  process.env.APP_ENV = "homologation";
+  process.env.HOMOLOGATION_CLOUDINARY_PREFIX = "homologacao";
+  const upload = jest.spyOn(cloudinary.uploader, "upload_stream");
+  const destroy = jest.spyOn(cloudinary.uploader, "destroy");
+  const sdkUrl = jest.spyOn(cloudinary, "url");
+  const id = criarPublicIdFotoPerfil();
+  for (const fora of [
+    id.replace("homologacao/", "pe-na-trilha/"),
+    id.replace("homologacao/", "homologacao-outra/"),
+    id.replace("/perfis/", "/perfis/../"),
+    id.replace("homologacao/", `homologacao/integracao/${"a".repeat(32)}/`),
+    `${id}\n`,
+  ]) {
+    expect(() => enviarImagem(Buffer.alloc(0), fora)).toThrow("fora do escopo");
+    expect(() => abrirFotoProtegida({ publicId: fora }, "detalhe", new AbortController().signal)).toThrow("fora do escopo");
+    await expect(excluirImagem(fora)).rejects.toThrow("fora do escopo");
+  }
+  expect(upload).not.toHaveBeenCalled();
+  expect(destroy).not.toHaveBeenCalled();
+  expect(sdkUrl).not.toHaveBeenCalled();
+});
+
+test("homologação só apresenta URL de perfil do cloud e do prefixo reservados", () => {
+  process.env.APP_ENV = "homologation";
+  process.env.HOMOLOGATION_CLOUDINARY_PREFIX = "homologacao";
+  const id = criarPublicIdFotoPerfil();
+  const url = `https://res.cloudinary.com/teste/image/upload/v1/${id}.webp`;
+  expect(apresentarUrlFotoPerfil(url)).toBe(url);
+  expect(apresentarUrlFotoPerfil(url.replace("/teste/", "/outro/"))).toBeNull();
+  expect(apresentarUrlFotoPerfil(url.replace("/homologacao/", "/pe-na-trilha/"))).toBeNull();
+  expect(apresentarUrlFotoPerfil(url, criarPublicIdFotoPerfil())).toBeNull();
 });
 function respostaRemota(status = 200, headers = { "content-type": "image/webp" }) {
   const resposta = Readable.from([Buffer.from("foto")]);

@@ -1,5 +1,5 @@
 import { jest } from "@jest/globals";
-import { validarTrilha } from "../src/middlewares/validarTrilha.js";
+import { validarTrilha, validarEdicaoTrilha } from "../src/middlewares/validarTrilha.js";
 
 function criarRespostaMock() {
   const res = {
@@ -88,4 +88,27 @@ describe("validarTrilha", () => {
     });
     expect(next).not.toHaveBeenCalled();
   });
+});
+
+test.each([0, 6, -1, 1.5, "2", null])("recusa uma quantidade prevista inválida (%j)", (fotosPrevistas) => {
+  const req = { body: { titulo: "Teste", descricao: "Teste", endereco: "Teste", fotosPrevistas } };
+  const res = criarRespostaMock();
+  const next = jest.fn();
+  validarTrilha(req, res, next);
+  expect(res.status).toHaveBeenCalledWith(400);
+  expect(next).not.toHaveBeenCalled();
+});
+
+test("a quantidade prevista só é aceita no cadastro", () => {
+  const body = { titulo: "Teste", descricao: "Teste", endereco: "Teste", fotosPrevistas: 2 };
+  const req = { body };
+  const next = jest.fn();
+  validarTrilha(req, criarRespostaMock(), next);
+  expect(req.body.fotosPrevistas).toBe(2);
+  expect(next).toHaveBeenCalledTimes(1);
+
+  const res = criarRespostaMock();
+  validarEdicaoTrilha({ body }, res, next);
+  expect(res.status).toHaveBeenCalledWith(400);
+  expect(next).toHaveBeenCalledTimes(1);
 });

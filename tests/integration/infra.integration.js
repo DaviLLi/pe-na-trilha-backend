@@ -1,5 +1,8 @@
 import mongoose from "mongoose";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { fileTypeFromBuffer } from "file-type";
+import request from "supertest";
 import cloudinary, { configurarCloudinary } from "../../src/config/cloudinary.js";
 import {
   criarPublicIdFotoPerfil,
@@ -16,6 +19,22 @@ import { registrarAssetDaExecucao } from "./registroAssets.js";
 const config = carregarAmbienteIntegracao();
 const bancoExecucao = validarBancoDaExecucao(process.env);
 const idExecucao = process.env.TEST_RUN_ID;
+
+function testarCloudinaryReal(nome, executar, timeout) {
+  const executarTeste = config.cloudinary ? test : test.skip;
+  executarTeste(nome, async () => {
+    if (process.env.CLOUDINARY_HOMOLOGACAO_RUN_ID !== idExecucao) {
+      throw new Error("O prefixo Cloudinary da execução não está ativo.");
+    }
+    try {
+      await executar();
+    } catch (erro) {
+      const status = erro?.http_code ?? erro?.error?.http_code ?? erro?.status;
+      const detalhe = Number.isInteger(status) && status >= 100 && status <= 599 ? ` (HTTP ${status})` : "";
+      throw new Error(`Falha na verificação Cloudinary${detalhe}. Consulte o nome do cenário.`);
+    }
+  }, timeout);
+}
 
 function criarResposta() {
   return {
@@ -123,7 +142,7 @@ describe("infraestrutura MongoDB de integração", () => {
     }
   });
 
-  test("envia e exclui uma imagem real no Cloudinary com limpeza registrada", async () => {
+  testarCloudinaryReal("envia e exclui uma imagem real no Cloudinary com limpeza registrada", async () => {
     expect(configurarCloudinary()).toBe(true);
 
     const { default: OperacaoImagem } = await import("../../src/models/OperacaoImagem.js");
@@ -182,7 +201,64 @@ describe("infraestrutura MongoDB de integração", () => {
     }
   }, 120000);
 
-  test("executa fluxos reais de perfil e concorrência/remoção de fotos de trilha", async () => {
+  testarCloudinaryReal("entrega miniatura e detalhe WebP privados para JPEG, PNG e WebP sintéticos", async () => {
+    const { default: app } = await import("../../src/app.js");
+    const { default: Usuario } = await import("../../src/models/Usuario.js");
+    const { default: Trilha } = await import("../../src/models/Trilha.js");
+    const { default: OperacaoImagem } = await import("../../src/models/OperacaoImagem.js");
+    const iniciouEm = new Date();
+    const senha = "FixtureSintetica1!";
+    const autor = await Usuario.create({
+      nomeCompleto: "Autor sintético de homologação",
+      nomeUsuario: randomUUID().replaceAll("-", "").replace(/[0-9]/g, (n) => "ghijklmnop"[Number(n)]),
+      email: `${randomUUID()}@example.test`,
+      senha,
+    });
+    const trilha = await Trilha.create({
+      titulo: "Imagens sintéticas", descricao: "Teste de integração", endereco: "Homologação", proprietario: autor._id,
+    });
+    const agente = request.agent(app);
+    const origin = "http://localhost:5173";
+    await agente.post("/usuarios/login").set("Origin", origin).send({ identificador: autor.email, senha }).expect(200);
+    const { body: { csrfToken } } = await agente.get("/usuarios/csrf").expect(200);
+
+    try {
+      for (const formato of ["jpg", "png", "webp"]) {
+        const arquivo = `sintetica.${formato}`;
+        const entrada = await readFile(new URL(`./fixtures/imagens-homologacao/${arquivo}`, import.meta.url));
+        const upload = await agente.post(`/trilhas/${trilha.id}/fotos`)
+          .set("Origin", origin).set("X-CSRF-Token", csrfToken).attach("imagem", entrada, arquivo);
+        await registrarOperacoesDaExecucao(db, OperacaoImagem, iniciouEm);
+        expect(upload.status).toBe(201);
+        const foto = (await Trilha.findById(trilha._id)).fotos.id(upload.body._id);
+        const remoto = await cloudinary.api.resource(foto.publicId, { resource_type: "image", type: "authenticated" });
+        expect(remoto.type).toBe("authenticated");
+        expect(remoto.format === formato || (formato === "jpg" && remoto.format === "jpeg")).toBe(true);
+        expect(remoto.width).toBe(640);
+        expect(remoto.height).toBe(480);
+
+        await request(app).get(upload.body.url).expect(401);
+        await request(app).get(`/trilhas/${trilha.id}/fotos/${foto.id}/conteudo`).expect(404);
+        for (const variante of ["miniatura", "detalhe"]) {
+          const resposta = await agente.get(upload.body.url).query({ variante }).expect(200);
+          expect(resposta.headers["content-type"]).toMatch(/^image\/webp/);
+          expect((await fileTypeFromBuffer(resposta.body))?.mime).toBe("image/webp");
+        }
+        const unsigned = new URL(cloudinary.url(foto.publicId, {
+          secure: true, sign_url: false, type: "authenticated", resource_type: "image",
+          version: foto.version, format: remoto.format,
+        }));
+        expect(unsigned.origin === "https://res.cloudinary.com").toBe(true);
+        const anonima = await fetch(unsigned, { redirect: "error", signal: AbortSignal.timeout(15_000) });
+        await anonima.body?.cancel();
+        expect([401, 403, 404]).toContain(anonima.status);
+      }
+    } finally {
+      await registrarOperacoesDaExecucao(db, OperacaoImagem, iniciouEm);
+    }
+  }, 180000);
+
+  testarCloudinaryReal("executa fluxos reais de perfil e concorrência/remoção de fotos de trilha", async () => {
     expect(configurarCloudinary()).toBe(true);
     const { default: Usuario } = await import("../../src/models/Usuario.js");
     const { default: Trilha } = await import("../../src/models/Trilha.js");
@@ -288,7 +364,7 @@ describe("infraestrutura MongoDB de integração", () => {
       await registrarOperacoesDaExecucao(db, OperacaoImagem, iniciouEm);
     }
   }, 180000);
-  test("exclui publicação com duas fotos reais, protege terceiros e processa limpeza persistente", async () => {
+  testarCloudinaryReal("exclui publicação com duas fotos reais, protege terceiros e processa limpeza persistente", async () => {
     const { default: Trilha } = await import("../../src/models/Trilha.js");
     const { default: OperacaoImagem } = await import("../../src/models/OperacaoImagem.js");
     const { adicionarFotoTrilha } = await import("../../src/controllers/fotoTrilhaController.js");

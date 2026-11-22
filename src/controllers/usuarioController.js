@@ -2,6 +2,7 @@ import bcrypt from "bcrypt";
 import { definirCookiesAuth } from "../config/authCookies.js";
 import { criarSessaoAuth } from "../services/authSessionService.js";
 import Usuario from "../models/Usuario.js";
+import { apresentarUrlFotoPerfil } from "../domain/identidadeImagem.js";
 
 const MENSAGEM_CREDENCIAIS_INVALIDAS = "Credenciais inválidas.";
 const ROUNDS_COMPARACAO_FALHA = 12;
@@ -13,7 +14,7 @@ export function dadosPublicosUsuario(usuario) {
     nomeUsuario: usuario.nomeUsuario,
     email: usuario.email,
     perfil: usuario.perfil,
-    fotoPerfil: usuario.fotoPerfil,
+    fotoPerfil: apresentarUrlFotoPerfil(usuario.fotoPerfil),
     createdAt: usuario.createdAt,
     updatedAt: usuario.updatedAt,
   };

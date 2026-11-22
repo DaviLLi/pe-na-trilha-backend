@@ -30,6 +30,33 @@ describe("controller de foto de perfil", () => {
     jest.spyOn(mongoose, "startSession").mockResolvedValue(sessao);
   });
 
+  test.each([substituirFotoPerfil, removerFotoPerfil])("bloqueia mutação de perfil com foto de produção em homologação", async (executar) => {
+    const ambiente = jest.replaceProperty(process, "env", {
+      ...process.env, APP_ENV: "homologation", HOMOLOGATION_CLOUDINARY_PREFIX: "homologacao",
+      CLOUDINARY_CLOUD_NAME: "teste",
+    });
+    try {
+      const publicId = "pe-na-trilha/perfis/123e4567-e89b-12d3-a456-426614174000";
+      const usuario = {
+        fotoPerfilPublicId: publicId,
+        fotoPerfil: `https://res.cloudinary.com/teste/image/upload/v1/${publicId}.webp`,
+        save: jest.fn(),
+      };
+      const consulta = Object.assign(Promise.resolve(usuario), { session: jest.fn().mockResolvedValue(usuario) });
+      jest.spyOn(Usuario, "findById").mockReturnValue({ select: jest.fn(() => consulta) });
+      const agendar = jest.spyOn(OperacaoImagem, "create");
+      const res = { status: jest.fn(() => res), json: jest.fn() };
+      await executar({ usuario: { _id: "usuario-1" } }, res, jest.fn());
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(enviarImagem).not.toHaveBeenCalled();
+      expect(agendar).not.toHaveBeenCalled();
+      expect(usuario.save).not.toHaveBeenCalled();
+      expect(usuario.fotoPerfilPublicId).toBe(publicId);
+    } finally {
+      ambiente.restore();
+    }
+  });
+
   test("associa URL e public ID do backend e agenda a foto anterior na transação", async () => {
     const usuario = {
       fotoPerfil: "https://res.cloudinary.com/demo/antiga.jpg",
