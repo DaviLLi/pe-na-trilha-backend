@@ -35,6 +35,7 @@ app.use(
     credentials: true,
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
+    exposedHeaders: ["Retry-After"],
   }),
 );
 app.use("/admin/administradores", administradorRoutes);
