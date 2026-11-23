@@ -1,12 +1,17 @@
 # Pé na Trilha — Backend
 
-API REST para cadastrar e gerenciar trilhas. O projeto oferece operações de criação, consulta, atualização e exclusão, com validação dos dados, persistência no MongoDB e tratamento centralizado de erros.
+API REST para cadastrar usuários, autenticar e gerenciar trilhas. O projeto oferece operações de cadastro e login de usuários e criação, consulta, atualização e exclusão de trilhas, com validação, persistência no MongoDB e tratamento centralizado de erros.
 
 ## Tecnologias
 
 - Node.js e ES Modules
 - Express 5
 - MongoDB e Mongoose
+- bcrypt para hash de senhas
+- jose para JWT
+- Cloudinary para armazenamento de imagens
+- Multer para recebimento multipart
+- file-type para validação do formato pela assinatura
 - CORS e dotenv
 - Jest para testes
 - ESLint para análise de código
@@ -15,9 +20,11 @@ API REST para cadastrar e gerenciar trilhas. O projeto oferece operações de cr
 
 Antes de começar, tenha instalado:
 
-- [Node.js](https://nodejs.org/) 20 ou superior
+- [Node.js](https://nodejs.org/) 22 ou superior
 - npm
 - Uma instância do [MongoDB](https://www.mongodb.com/), local ou no MongoDB Atlas
+
+Para upload e remoção de fotos, o MongoDB local deve operar como replica set, pois esses fluxos usam transações. O Atlas fornece suporte a transações.
 
 ## Instalação
 
@@ -28,61 +35,138 @@ Antes de começar, tenha instalado:
    cd pe-na-trilha-backend
    ```
 
-2. Instale as dependências:
-
-   ```bash
-   npm install
-   ```
-
-3. Crie o arquivo de variáveis de ambiente a partir do exemplo:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-4. Preencha o `.env` com os dados do seu ambiente:
-
-   ```env
-   PORT=3000
-   MONGO_URI=mongodb+srv://usuario:senha@cluster.mongodb.net/penatrilha
-   FRONTEND_URL=http://localhost:5173
-   ```
-
-   | Variável | Obrigatória | Descrição | Padrão |
-   | --- | --- | --- | --- |
-   | `MONGO_URI` | Sim | URI de conexão com o MongoDB | — |
-   | `PORT` | Não | Porta utilizada pela API | `3000` |
-   | `FRONTEND_URL` | Não | Origem autorizada pelo CORS | `http://localhost:5173` |
-
-> Não publique o arquivo `.env`: ele pode conter credenciais e já está incluído no `.gitignore`.
+2. Instale as dependências com `npm ci`.
+3. Use os modelos `.env.production.example` e `.env.homologation.example` para preparar os arquivos locais separados. Preserve as credenciais existentes de cada ambiente.
 
 ## Executando o projeto
 
-Em desenvolvimento, com reinicialização automática:
+| Ambiente | Comando | API | Origem do frontend local |
+| --- | --- | --- | --- |
+| Produção local | `npm run dev:production` | `http://localhost:3000` | `http://localhost:5173` |
+| Homologação | `npm run dev:homologation` | `http://127.0.0.1:3001` | `http://127.0.0.1:5174` |
 
-```bash
-npm run dev
-```
+Use `npm start` no Render. Ele seleciona produção, usa a porta fornecida pelo provedor e escuta em `0.0.0.0`. Consulte o [guia de ambientes](docs/ambientes.md) para os arquivos de configuração e a conferência somente leitura.
 
-Em modo normal:
+## Moderação e edição por status
 
-```bash
-npm start
-```
-
-Por padrão, a API estará disponível em `http://localhost:3000`.
+O contrato de publicações evoluiu: novos registros são pendentes e consultas públicas
+retornam somente aprovadas. Aprovadas permitem ao autor editar apenas características
+e duração; fotos e dados básicos ficam bloqueados. Rejeitadas exigem reenvio explícito.
+Consulte [o contrato atualizado](docs/moderacao-publicacoes.md) para endpoints privados,
+moderação, validações, histórico e tratamento dos dados legados. As descrições básicas
+de trilhas abaixo devem ser lidas com essas restrições.
 
 ## Endpoints
 
-A URL base dos recursos é `/trilhas`.
+Por padrão, a API está disponível em `http://localhost:3000`. As rotas de leitura das trilhas são públicas. No fluxo do navegador, a autenticação usa cookies `HttpOnly`; mutações autenticadas também exigem `X-CSRF-Token`.
 
-| Método | Endpoint | Descrição | Sucesso |
-| --- | --- | --- | --- |
-| `GET` | `/trilhas` | Lista todas as trilhas, das mais recentes para as mais antigas | `200` |
-| `GET` | `/trilhas/:id` | Busca uma trilha pelo ID | `200` |
-| `POST` | `/trilhas` | Cadastra uma trilha | `201` |
-| `PUT` | `/trilhas/:id` | Atualiza todos os dados de uma trilha | `200` |
-| `DELETE` | `/trilhas/:id` | Exclui uma trilha | `204` |
+### Usuários
+
+| Método | Endpoint | Autenticação | Descrição | Sucesso |
+| --- | --- | --- | --- | --- |
+| `POST` | `/usuarios` | Não | Cadastra um usuário | `201` |
+| `POST` | `/usuarios/login` | Origin frontend permitido | Autentica e define cookies da sessão | `200` |
+| `POST` | `/usuarios/refresh` | Origin frontend permitido e cookie de refresh | Rotaciona o refresh token e renova a sessão | `200` |
+| `POST` | `/usuarios/logout` | Cookie de acesso, Origin permitido e CSRF | Revoga a sessão e limpa cookies | `204` |
+| `GET` | `/usuarios/csrf` | Cookie de acesso | Retorna token CSRF vinculado à sessão atual | `200` |
+| `GET` | `/usuarios/me` | Sim | Consulta o próprio perfil | `200` |
+| `PATCH` | `/usuarios/me` | Cookie de acesso e CSRF | Atualiza nome completo, username e/ou e-mail | `200` |
+| `PUT` | `/usuarios/me/foto-perfil` | Cookie de acesso e CSRF | Envia ou substitui a foto de perfil (`multipart`, campo `imagem`) | `200` |
+| `DELETE` | `/usuarios/me/foto-perfil` | Cookie de acesso e CSRF | Remove a foto de perfil | `200` |
+
+O cadastro aceita `nomeCompleto`, `nomeUsuario`, `email` e `senha`. O backend define o perfil como `user`; não aceita foto nem perfil administrativo no cadastro. O `PATCH /usuarios/me` aceita um ou mais dos campos `nomeCompleto`, `nomeUsuario` e `email`; rejeita campos desconhecidos, `senha` e `perfil`. Username e e-mail são normalizados para minúsculas. Duplicidades retornam `409`.
+
+Cadastro retorna o objeto público do usuário e não inicia sessão. Login retorna `{ "usuario": { ... } }` e define cookies de acesso e refresh `HttpOnly`; nenhum token de autenticação é retornado no JSON. O objeto público contém `_id`, `nomeCompleto`, `nomeUsuario`, `email`, `perfil`, `fotoPerfil`, `createdAt` e `updatedAt`; nunca inclui senha, hash ou public ID do Cloudinary.
+
+Exemplo de cadastro:
+
+```bash
+curl -X POST http://localhost:3000/usuarios \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nomeCompleto": "Ana da Silva",
+    "nomeUsuario": "ana",
+    "email": "ana@example.com",
+    "senha": "Trilha123!"
+  }'
+```
+
+Exemplo de login:
+
+```bash
+curl -X POST http://localhost:3000/usuarios/login \
+  -H "Origin: http://localhost:5173" \
+  -H "Content-Type: application/json" \
+  -d '{"identificador":"ana@example.com","senha":"Trilha123!"}'
+```
+
+Para username, o mesmo campo `identificador` recebe o username. O access JWT dura 15 minutos e fica em cookie `HttpOnly`; o refresh opaco tem validade absoluta de 30 dias, é armazenado no banco somente como hash e gira a cada renovação. Reutilizar um hash consumido revoga a sessão. O cliente renova a sessão após reload e quando o access JWT expira.
+
+O cliente deve usar `withCredentials` e enviar `X-CSRF-Token` nas requisições autenticadas que alteram estado. Obtenha o token com `GET /usuarios/csrf`; ele é HMAC vinculado ao ID da sessão e ao `CSRF_SECRET`, e não autentica por si só. Login, refresh e logout exigem `Origin` exatamente presente em `FRONTEND_ORIGINS`. CORS permite credenciais somente para essas origens; curingas não são aceitos.
+
+Cookies usam `HttpOnly`, `Path=/` e não definem `Domain`. Em produção são `Secure` e usam o prefixo `__Host-`. Configure `AUTH_COOKIE_SAME_SITE=none` para frontend/API realmente cross-site; `SameSite=None` requer HTTPS. Os domínios gratuitos padrão da Vercel e Render costumam pertencer a sites registráveis diferentes: navegadores podem bloquear cookies de terceiros mesmo com CORS e `SameSite=None`. Para disponibilidade SaaS, prefira subdomínios do mesmo domínio próprio (por exemplo, `app.exemplo.com` e `api.exemplo.com`) ou um proxy/BFF no mesmo site. A configuração precisa ser testada nos navegadores suportados antes da publicação.
+
+Exemplo de consulta e atualização de perfil:
+
+```bash
+curl http://localhost:3000/usuarios/me \
+  -H "Origin: http://localhost:5173" \
+  -b cookies.txt -c cookies.txt
+
+curl -X PATCH http://localhost:3000/usuarios/me \
+  -H "Origin: http://localhost:5173" \
+  -H "X-CSRF-Token: <csrf-token-retornado-por-GET-usuarios-csrf>" \
+  -b cookies.txt -c cookies.txt \
+  -H "Content-Type: application/json" \
+  -d '{"nomeCompleto":"Ana Silva","email":"ana.silva@example.com"}'
+```
+
+### Trilhas
+
+| Método | Endpoint | Autenticação | Descrição | Sucesso |
+| --- | --- | --- | --- | --- |
+| `GET` | `/trilhas` | Não | Lista trilhas da mais recente para a mais antiga | `200` |
+| `GET` | `/trilhas/:id` | Não | Consulta uma trilha | `200` |
+| `POST` | `/trilhas` | Sim | Cria trilha para o usuário autenticado | `201` |
+| `PUT` | `/trilhas/:id` | Sim, proprietário | Substitui título, descrição e endereço | `200` |
+| `DELETE` | `/trilhas/:id` | Sim, proprietário | Exclui a trilha | `204` |
+| `POST` | `/trilhas/:id/fotos` | Sim, proprietário | Adiciona foto (máximo de cinco) | `201` |
+| `PUT` | `/trilhas/:id/fotos/:fotoId` | Sim, proprietário | Substitui a foto indicada | `200` |
+| `DELETE` | `/trilhas/:id/fotos/:fotoId` | Sim, proprietário | Remove a foto indicada | `204` |
+
+Trilhas e fotos de trilha são públicas para leitura. Somente o proprietário pode alterar ou excluir a trilha ou suas fotos; outro usuário recebe `404`. O backend define o proprietário na criação e ignora qualquer proprietário enviado pelo cliente. As respostas públicas das fotos incluem `_id`, `url`, `createdAt` e `updatedAt`, sem o public ID do Cloudinary.
+
+### Upload de imagens
+
+Fotos de publicações agora usam armazenamento autenticado e URLs internas. Consulte
+[o contrato de fotos privadas](docs/fotos-privadas.md) para entrega, permissões e
+limitações dos assets legados. Fotos de perfil preservam seu comportamento anterior.
+
+Fotos de perfil e de trilhas aceitam JPEG, PNG ou WebP, com limite de 5 MiB por arquivo e um arquivo por requisição. Envie o arquivo no campo multipart `imagem`; não envie URL, public ID ou proprietário. O formato é conferido pela assinatura do arquivo. O armazenamento multipart usa memória, portanto uploads simultâneos podem exigir limites adicionais de concorrência ou taxa no gateway. A substituição e remoção registram a limpeza remota em operações persistidas, com tentativas automáticas e recuperação por lease. Operações que esgotam tentativas permanecem registradas para reenvio operacional.
+
+Exemplos de upload:
+
+```bash
+curl -X PUT http://localhost:3000/usuarios/me/foto-perfil \
+  -H "X-CSRF-Token: <csrf-token>" \
+  -b cookies.txt -c cookies.txt \
+  -F "imagem=@perfil.webp"
+
+curl -X POST http://localhost:3000/trilhas/<trilhaId>/fotos \
+  -H "X-CSRF-Token: <csrf-token>" \
+  -b cookies.txt -c cookies.txt \
+  -F "imagem=@trilha.jpg"
+```
+
+Fotos legadas que contenham somente uma URL, sem `fotoPerfilPublicId`, não podem ser excluídas automaticamente do Cloudinary. A remoção limpa a referência no perfil, mas a limpeza remota dessas imagens exige reconciliação operacional.
+
+Logout invalida a sessão no banco antes de apagar os cookies. O cliente não persiste JWT ou refresh token em Web Storage; o navegador envia os cookies HttpOnly automaticamente. O endpoint `GET /usuarios/csrf` requer uma sessão ativa.
+
+**Requisito pendente antes da publicação em produção:** aplicar limitação de tentativas no endpoint de login via gateway/proxy ou solução adequada à topologia de implantação. Esta proteção não está implementada nesta etapa.
+
+### Testes automatizados
+
+`npm test` executa a suíte padrão com dependências simuladas. A suíte de integração de persistência usa somente uma fixture descartável em loopback, fornecida explicitamente ao processo. Nenhum arquivo de um terceiro ambiente é carregado. Consulte o [guia de ambientes](docs/ambientes.md#verificações-locais).
 
 ### Formato da trilha
 
@@ -113,6 +197,7 @@ Ao salvar uma trilha, a API acrescenta o `_id`, `createdAt` e `updatedAt`:
 
 ```bash
 curl -X POST http://localhost:3000/trilhas \
+  -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
     "titulo": "Trilha da Lagoa",
@@ -131,18 +216,17 @@ Os erros seguem este formato:
 }
 ```
 
-Possíveis respostas incluem:
-
-- `400` para corpo, dados ou ID inválidos;
-- `404` para trilha ou rota não encontrada;
-- `500` para erro interno do servidor.
+Possíveis respostas incluem `400` para corpo, validação ou ID inválidos; `401` para token ausente, inválido ou expirado; `404` para recurso inexistente ou sem acesso por propriedade; `409` para username/e-mail duplicado, limite de cinco fotos ou conflito de upload; `413` para arquivo acima de 5 MiB; `502` para falha de upload; `503` quando Cloudinary não está configurado; e `500` para falhas internas. Exclusões de trilhas e fotos de trilha retornam `204` sem corpo; as outras respostas de sucesso são JSON.
 
 ## Scripts disponíveis
 
 | Comando | Descrição |
 | --- | --- |
-| `npm run dev` | Inicia a API em modo de desenvolvimento |
-| `npm start` | Inicia a API |
+| `npm run dev:production` | Inicia a API local com os recursos de produção |
+| `npm start` | Inicia a API em produção e exige `MONGO_URI_PRODUCTION` |
+| `npm run dev:homologation` | Inicia a API local com os recursos de homologação |
+| `npm run dev:production -- --check-connection` | Confere a conexão de produção somente em leitura |
+| `npm run dev:homologation -- --check-connection` | Confere a conexão de homologação somente em leitura |
 | `npm test` | Executa os testes e gera o relatório de cobertura |
 | `npm run lint` | Verifica os arquivos de `src` com o ESLint |
 
@@ -150,7 +234,7 @@ Possíveis respostas incluem:
 
 ```text
 src/
-├── config/          # Conexão com o banco de dados
+├── config/          # Configuração do banco e do JWT
 ├── controllers/     # Regras das operações da API
 ├── middlewares/     # Validação e tratamento de erros
 ├── models/          # Modelos do Mongoose
@@ -175,3 +259,12 @@ Para verificar o padrão do código:
 ```bash
 npm run lint
 ```
+
+### Sessões obrigatórias em rotas protegidas
+
+Tanto cookie quanto Bearer exigem access JWT com `sid` de sessão ativa, não revogada
+e não expirada, vinculada ao usuário. JWTs legados sem `sid` recebem 401. Login e
+refresh atuais já emitem esse claim; não há migração de dados. Clientes antigos
+precisam renovar a sessão por refresh válido ou realizar login novamente. Logout
+revoga a sessão e invalida novas requisições com seus access tokens. As permissões
+de proprietário/admin e a proteção CSRF por cookie permanecem aplicadas.

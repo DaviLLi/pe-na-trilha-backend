@@ -1,0 +1,225 @@
+import { jest } from "@jest/globals";
+
+const excluirImagem = jest.fn();
+jest.unstable_mockModule("../src/services/cloudinaryService.js", () => ({
+  excluirImagem,
+  criarPublicIdFotoPerfil: jest.fn(),
+  enviarImagem: jest.fn(),
+}));
+
+const { default: OperacaoImagem } = await import("../src/models/OperacaoImagem.js");
+const { default: Trilha } = await import("../src/models/Trilha.js");
+const { default: Usuario } = await import("../src/models/Usuario.js");
+const {
+  processarUmaOperacao,
+  recuperarOperacoesExpiradas,
+  reenfileirarOperacaoImagem,
+  iniciarProcessadorOperacoesImagem,
+  pararProcessadorOperacoesImagem,
+} = await import("../src/services/processarOperacoesImagem.js");
+
+describe("processador de operações de imagem", () => {
+  const nomesEnv = [
+    "CLOUDINARY_CLOUD_NAME",
+    "CLOUDINARY_API_KEY",
+    "CLOUDINARY_API_SECRET",
+  ];
+  let envAnterior;
+
+  beforeEach(() => {
+    envAnterior = Object.fromEntries(nomesEnv.map((nome) => [nome, process.env[nome]]));
+    for (const nome of nomesEnv) process.env[nome] = "teste";
+    excluirImagem.mockReset();
+    jest.restoreAllMocks();
+    jest.spyOn(Trilha, "exists").mockReturnValue({ read: jest.fn().mockResolvedValue(null) });
+    jest.spyOn(Usuario, "exists").mockReturnValue({ read: jest.fn().mockResolvedValue(null) });
+  });
+
+  afterEach(() => {
+    for (const nome of nomesEnv) {
+      if (envAnterior[nome] === undefined) delete process.env[nome];
+      else process.env[nome] = envAnterior[nome];
+    }
+  });
+
+  test("só reivindica cleanup_pending e conclui com token de lease", async () => {
+    const operacao = { _id: "op1", publicId: "server/asset", tentativas: 0 };
+    jest.spyOn(OperacaoImagem, "findOneAndUpdate").mockResolvedValue(operacao);
+    const atualizar = jest.spyOn(OperacaoImagem, "updateOne").mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+    excluirImagem.mockResolvedValue(undefined);
+
+    await expect(processarUmaOperacao(new Date("2026-01-01T00:00:00Z"))).resolves.toBe(true);
+
+    expect(OperacaoImagem.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ estado: "cleanup_pending" }),
+      expect.objectContaining({ $set: expect.objectContaining({ estado: "processing" }) }),
+      { returnDocument: "after", sort: { nextAttemptAt: 1 } },
+    );
+    expect(excluirImagem).toHaveBeenCalledWith("server/asset", { resourceType: "image", deliveryType: "upload" });
+    expect(atualizar).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: "op1", estado: "processing" }),
+      expect.objectContaining({ $set: expect.objectContaining({ estado: "completed" }) }),
+    );
+  });
+
+  test("não processa upload nem outra operação quando não há cleanup pendente", async () => {
+    jest.spyOn(OperacaoImagem, "findOneAndUpdate").mockResolvedValue(null);
+    await expect(processarUmaOperacao()).resolves.toBe(false);
+    expect(excluirImagem).not.toHaveBeenCalled();
+  });
+
+  test("homologação ignora registros de produção no claim, na recuperação e no reenvio", async () => {
+    const ambiente = jest.replaceProperty(process, "env", {
+      ...process.env, APP_ENV: "homologation", HOMOLOGATION_CLOUDINARY_PREFIX: "homologacao",
+    });
+    try {
+      const autorizada = "homologacao/perfis/123e4567-e89b-12d3-a456-426614174000";
+      const producao = autorizada.replace("homologacao/", "pe-na-trilha/");
+      const buscar = jest.spyOn(OperacaoImagem, "findOneAndUpdate")
+        .mockResolvedValueOnce({ _id: "fora-do-escopo", publicId: producao }).mockResolvedValueOnce(null);
+      const recuperar = jest.spyOn(OperacaoImagem, "updateMany").mockResolvedValue({ modifiedCount: 0 });
+      await expect(processarUmaOperacao()).resolves.toBe(false);
+      await recuperarOperacoesExpiradas();
+      await reenfileirarOperacaoImagem("fora-do-escopo");
+      for (const [filtro] of [...buscar.mock.calls, ...recuperar.mock.calls]) {
+        expect(filtro.publicId.test(autorizada)).toBe(true);
+        expect(filtro.publicId.test(producao)).toBe(false);
+        expect(filtro.publicId.test(`${autorizada}\n`)).toBe(false);
+      }
+      expect(Trilha.exists).not.toHaveBeenCalled();
+      expect(Usuario.exists).not.toHaveBeenCalled();
+      expect(excluirImagem).not.toHaveBeenCalled();
+    } finally {
+      ambiente.restore();
+    }
+  });
+
+  test("impede a exclusão de um asset ainda referenciado", async () => {
+    const publicId = "server/asset";
+    jest.spyOn(OperacaoImagem, "findOneAndUpdate").mockResolvedValue({ _id: "op1", publicId });
+    const atualizar = jest.spyOn(OperacaoImagem, "updateOne").mockResolvedValue({ matchedCount: 1 });
+    Trilha.exists.mockReturnValue({ read: jest.fn().mockResolvedValue({ _id: "trilha" }) });
+    await expect(processarUmaOperacao()).resolves.toBe(true);
+    expect(Trilha.exists).toHaveBeenCalledWith({ "fotos.publicId": publicId });
+    expect(excluirImagem).not.toHaveBeenCalled();
+    expect(atualizar).toHaveBeenCalledWith(expect.objectContaining({ estado: "processing" }),
+      expect.objectContaining({ $set: expect.objectContaining({ estado: "failed" }) }));
+  });
+
+  test("uma única reivindicação vence quando dois ciclos concorrem", async () => {
+    const operacao = { _id: "op-unica", publicId: "server/asset", tentativas: 0 };
+    const reivindicar = jest
+      .spyOn(OperacaoImagem, "findOneAndUpdate")
+      .mockResolvedValueOnce(operacao)
+      .mockResolvedValueOnce(null);
+    jest.spyOn(OperacaoImagem, "updateOne").mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+    excluirImagem.mockResolvedValue(undefined);
+
+    await expect(Promise.all([processarUmaOperacao(), processarUmaOperacao()])).resolves.toEqual([
+      true,
+      false,
+    ]);
+
+    expect(reivindicar).toHaveBeenCalledTimes(2);
+    expect(excluirImagem).toHaveBeenCalledTimes(1);
+  });
+
+  test("mantém operação como failed após esgotar tentativas e registra erro", async () => {
+    jest.spyOn(OperacaoImagem, "findOneAndUpdate").mockResolvedValue({
+      _id: "op-final",
+      publicId: "server/asset",
+      tentativas: 8,
+    });
+    const atualizar = jest.spyOn(OperacaoImagem, "updateOne").mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+    excluirImagem.mockRejectedValue(new Error("detalhe remoto confidencial"));
+
+    await processarUmaOperacao();
+
+    expect(atualizar).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: "op-final", estado: "processing" }),
+      expect.objectContaining({
+        $set: expect.objectContaining({ estado: "failed", ultimoErro: expect.any(String) }),
+        $push: expect.objectContaining({ historicoTentativas: expect.any(Object) }),
+      }),
+    );
+    expect(JSON.stringify(atualizar.mock.calls)).not.toContain("detalhe remoto confidencial");
+  });
+
+  test("recupera leases expirados de upload e processamento para cleanup_pending", async () => {
+    const atualizar = jest.spyOn(OperacaoImagem, "updateMany").mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+    const agora = new Date("2026-01-01T00:00:00Z");
+
+    await recuperarOperacoesExpiradas(agora);
+
+    expect(atualizar).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ estado: "uploading" }),
+      expect.objectContaining({ $set: expect.objectContaining({ estado: "cleanup_pending" }) }),
+    );
+    expect(atualizar).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ estado: "processing" }),
+      expect.objectContaining({ $set: expect.objectContaining({ estado: "cleanup_pending" }) }),
+    );
+  });
+
+  test("permite reenfileirar uma operação falha sem apagá-la", async () => {
+    const atualizar = jest
+      .spyOn(OperacaoImagem, "findOneAndUpdate")
+      .mockResolvedValue({ _id: "op-falha", estado: "cleanup_pending" });
+
+    await reenfileirarOperacaoImagem("op-falha");
+
+    expect(atualizar).toHaveBeenCalledWith(
+      { _id: "op-falha", estado: "failed" },
+      expect.objectContaining({ $set: expect.objectContaining({ estado: "cleanup_pending" }) }),
+      { returnDocument: "after" },
+    );
+  });
+
+  test("parar encerra o timer, aguarda o ciclo ativo e é idempotente", async () => {
+    jest.useFakeTimers();
+    let liberarRecuperacao;
+    const recuperacaoPendente = new Promise((resolve) => {
+      liberarRecuperacao = resolve;
+    });
+    jest
+      .spyOn(OperacaoImagem, "updateMany")
+      .mockReturnValueOnce(recuperacaoPendente)
+      .mockResolvedValue({ matchedCount: 0, modifiedCount: 0 });
+    jest.spyOn(OperacaoImagem, "findOneAndUpdate").mockResolvedValue(null);
+
+    iniciarProcessadorOperacoesImagem();
+    expect(jest.getTimerCount()).toBe(1);
+
+    let finalizado = false;
+    const parada = pararProcessadorOperacoesImagem().then(() => {
+      finalizado = true;
+    });
+    const chamadaRepetida = pararProcessadorOperacoesImagem();
+    expect(jest.getTimerCount()).toBe(0);
+    expect(finalizado).toBe(false);
+
+    liberarRecuperacao({ matchedCount: 0, modifiedCount: 0 });
+    await Promise.all([parada, chamadaRepetida]);
+    expect(finalizado).toBe(true);
+    expect(excluirImagem).not.toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+});
+
+test("identidade autenticada é preservada entre operação e exclusão remota", async () => {
+  const nomes = ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"];
+  const anterior = nomes.map((nome) => process.env[nome]);
+  nomes.forEach((nome) => { process.env[nome] = "teste"; });
+  try {
+    jest.spyOn(OperacaoImagem, "findOneAndUpdate").mockResolvedValue({ _id: "op-auth", publicId: "foto", resourceType: "image", deliveryType: "authenticated", tentativas: 1 });
+    jest.spyOn(OperacaoImagem, "updateOne").mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+    excluirImagem.mockResolvedValue(undefined);
+    await processarUmaOperacao();
+    expect(excluirImagem).toHaveBeenLastCalledWith("foto", { resourceType: "image", deliveryType: "authenticated" });
+  } finally {
+    jest.restoreAllMocks();
+    nomes.forEach((nome, i) => { if (anterior[i] === undefined) delete process.env[nome]; else process.env[nome] = anterior[i]; });
+  }
+});

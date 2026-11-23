@@ -1,0 +1,269 @@
+import { randomUUID } from "node:crypto";
+import OperacaoImagem from "../models/OperacaoImagem.js";
+import Trilha from "../models/Trilha.js";
+import Usuario from "../models/Usuario.js";
+import { cloudinaryDisponivel } from "../config/cloudinary.js";
+import { excluirImagem } from "./cloudinaryService.js";
+import { imagemNoEscopo, padraoImagemDaHomologacao } from "../domain/identidadeImagem.js";
+
+const LEASE_PROCESSAMENTO_MS = 3 * 60 * 1000;
+const CARÊNCIA_UPLOAD_MS = 10 * 60 * 1000;
+const MAX_TENTATIVAS = 8;
+const INTERVALO_MS = 15000;
+const CONCORRENCIA = 3;
+const MAX_OPERACOES_POR_CICLO = 30;
+const HEARTBEAT_MS = 30_000;
+let timer;
+let executando = false;
+let cicloAtivo;
+let encerrando = false;
+let encerramentoAtivo;
+
+function atrasoTentativa(tentativas) {
+  return Math.min(60 * 60 * 1000, 1000 * 2 ** Math.min(tentativas, 12));
+}
+
+function filtroEscopoImagem() {
+  const publicId = padraoImagemDaHomologacao();
+  return publicId ? { publicId } : {};
+}
+
+export async function recuperarOperacoesExpiradas(agora = new Date()) {
+  const escopo = filtroEscopoImagem();
+  await OperacaoImagem.updateMany(
+    { ...escopo, estado: "uploading", uploadLeaseUntil: { $lte: agora } },
+    {
+      $set: {
+        estado: "cleanup_pending",
+        nextAttemptAt: new Date(agora.getTime() + CARÊNCIA_UPLOAD_MS),
+        uploadLeaseToken: null,
+        uploadLeaseUntil: null,
+        ultimoErro: "Lease de upload expirou antes da confirmação.",
+      },
+      $push: {
+        historicoTentativas: {
+          $each: [{ data: agora, erro: "Lease de upload expirou antes da confirmação." }],
+          $slice: -20,
+        },
+      },
+    },
+  );
+
+  await OperacaoImagem.updateMany(
+    { ...escopo, estado: "processing", processingLeaseUntil: { $lte: agora } },
+    {
+      $set: {
+        estado: "cleanup_pending",
+        nextAttemptAt: agora,
+        processingLeaseToken: null,
+        processingLeaseUntil: null,
+        ultimoErro: "Lease de processamento expirou; operação será repetida.",
+      },
+      $push: {
+        historicoTentativas: {
+          $each: [{
+            data: agora,
+            erro: "Lease de processamento expirou; operação será repetida.",
+          }],
+          $slice: -20,
+        },
+      },
+    },
+  );
+}
+
+export async function processarUmaOperacao(
+  agora = new Date(),
+  excluir = cloudinaryDisponivel() ? excluirImagem : undefined,
+) {
+  if (!excluir) {
+    return false;
+  }
+
+  const token = randomUUID();
+  const operacao = await OperacaoImagem.findOneAndUpdate(
+    {
+      ...filtroEscopoImagem(),
+      estado: "cleanup_pending",
+      $or: [{ nextAttemptAt: null }, { nextAttemptAt: { $lte: agora } }],
+    },
+    {
+      $set: {
+        estado: "processing",
+        processingLeaseToken: token,
+        processingLeaseUntil: new Date(agora.getTime() + LEASE_PROCESSAMENTO_MS),
+      },
+      $inc: { tentativas: 1 },
+      $push: {
+        historicoTentativas: {
+          $each: [{ data: agora, erro: "Tentativa de exclusão iniciada." }],
+          $slice: -20,
+        },
+      },
+    },
+    { returnDocument: "after", sort: { nextAttemptAt: 1 } },
+  );
+
+  if (!operacao || !imagemNoEscopo(operacao.publicId)) {
+    return false;
+  }
+
+  const filtroLease = { _id: operacao._id, estado: "processing", processingLeaseToken: token };
+  let leasePerdido = false;
+  let renovacaoAtiva;
+  async function renovarLease() {
+    const agoraRenovacao = new Date();
+    const resultado = await OperacaoImagem.updateOne(
+      { ...filtroLease, processingLeaseUntil: { $gt: agoraRenovacao } },
+      { $set: { processingLeaseUntil: new Date(agoraRenovacao.getTime() + LEASE_PROCESSAMENTO_MS) } },
+    );
+    if (resultado.matchedCount !== 1) leasePerdido = true;
+  }
+  const heartbeat = setInterval(() => {
+    if (renovacaoAtiva || leasePerdido) return;
+    renovacaoAtiva = renovarLease().catch(() => {
+      // Sem confirmação do banco não se presume propriedade do lease.
+      leasePerdido = true;
+    }).finally(() => { renovacaoAtiva = undefined; });
+  }, HEARTBEAT_MS);
+  heartbeat.unref?.();
+
+  try {
+    const [trilha, usuario] = await Promise.all([
+      Trilha.exists({ "fotos.publicId": operacao.publicId }).read("primary"),
+      Usuario.exists({ fotoPerfilPublicId: operacao.publicId }).read("primary"),
+    ]);
+    if (trilha || usuario) {
+      await OperacaoImagem.updateOne(filtroLease, {
+        $set: { estado: "failed", nextAttemptAt: null, ultimoErro: "Imagem ainda referenciada pelo sistema." },
+        $unset: { processingLeaseToken: 1, processingLeaseUntil: 1 },
+      });
+      return true;
+    }
+    // Revalida antes da chamada externa, inclusive se o claim demorou a retornar.
+    await renovarLease();
+    if (leasePerdido) return true;
+    await excluir(operacao.publicId, { resourceType: operacao.resourceType || "image", deliveryType: operacao.deliveryType || "upload" });
+    if (leasePerdido) return true;
+    await OperacaoImagem.updateOne(
+      { _id: operacao._id, estado: "processing", processingLeaseToken: token },
+      {
+        $set: { estado: "completed", concluidoEm: new Date(), ultimoErro: null },
+        $unset: { processingLeaseToken: 1, processingLeaseUntil: 1 },
+      },
+    );
+  } catch {
+    if (leasePerdido) return true;
+    const encerrada = operacao.tentativas >= MAX_TENTATIVAS;
+    const ocorridoEm = new Date();
+    const mensagem = "Não foi possível confirmar a limpeza da imagem.";
+    await OperacaoImagem.updateOne(
+      { _id: operacao._id, estado: "processing", processingLeaseToken: token },
+      {
+        $set: {
+          estado: encerrada ? "failed" : "cleanup_pending",
+          nextAttemptAt: encerrada
+            ? null
+            : new Date(ocorridoEm.getTime() + atrasoTentativa(operacao.tentativas)),
+          ultimoErro: mensagem,
+        },
+        $push: {
+          historicoTentativas: {
+            $each: [{ data: ocorridoEm, erro: mensagem }],
+            $slice: -20,
+          },
+        },
+        $unset: { processingLeaseToken: 1, processingLeaseUntil: 1 },
+      },
+    );
+  } finally {
+    clearInterval(heartbeat);
+    await renovacaoAtiva;
+  }
+
+  return true;
+}
+
+export async function reenfileirarOperacaoImagem(id) {
+  return OperacaoImagem.findOneAndUpdate(
+    { ...filtroEscopoImagem(), _id: id, estado: "failed" },
+    {
+      $set: {
+        estado: "cleanup_pending",
+        nextAttemptAt: new Date(),
+        tentativas: 0,
+        ultimoErro: null,
+      },
+    },
+    { returnDocument: "after" },
+  );
+}
+
+// Cada faixa busca a próxima operação assim que termina a atual, sem esperar
+// pelas demais. O orçamento limita o total de claims por ciclo.
+export async function processarLoteOperacoesImagem() {
+  let reivindicacoes = 0;
+  let processadas = 0;
+  let filaVazia = false;
+  await Promise.all(Array.from({ length: CONCORRENCIA }, async () => {
+    while (!encerrando && !filaVazia && reivindicacoes < MAX_OPERACOES_POR_CICLO) {
+      reivindicacoes++;
+      try {
+        const processou = await processarUmaOperacao();
+        if (!processou) { filaVazia = true; return; }
+        processadas++;
+      } catch {
+        // Se houve claim, seu lease garante recuperação. Encerra esta faixa para
+        // não bombardear o banco em caso de indisponibilidade.
+        console.error("Falha ao processar operação de imagem; recuperação pelo lease.");
+        return;
+      }
+    }
+  }));
+  return processadas;
+}
+
+function ciclo() {
+  if (encerrando || executando) {
+    return cicloAtivo;
+  }
+
+  executando = true;
+  cicloAtivo = (async () => {
+    try {
+      if (cloudinaryDisponivel()) {
+        await recuperarOperacoesExpiradas();
+        if (!encerrando) await processarLoteOperacoesImagem();
+      }
+    } catch (erro) {
+      console.error("Falha no processador de operações de imagem:", erro.message);
+    } finally {
+      executando = false;
+      cicloAtivo = undefined;
+    }
+  })();
+
+  return cicloAtivo;
+}
+
+export function iniciarProcessadorOperacoesImagem() {
+  if (timer || encerrando) return;
+  timer = setInterval(() => void ciclo(), INTERVALO_MS);
+  timer.unref?.();
+  void ciclo();
+}
+
+export function pararProcessadorOperacoesImagem() {
+  if (encerramentoAtivo) {
+    return encerramentoAtivo;
+  }
+
+  encerrando = true;
+  if (timer) {
+    clearInterval(timer);
+    timer = undefined;
+  }
+
+  encerramentoAtivo = cicloAtivo || Promise.resolve();
+  return encerramentoAtivo;
+}

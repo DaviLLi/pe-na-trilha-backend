@@ -1,23 +1,48 @@
+import { filtroBuscaPublica } from "../domain/buscaPublicacoes.js";
+import mongoose from "mongoose";
+import { apresentarTrilha, identidadeLimpeza } from "../domain/fotoPublicacao.js";
+import { escopoImagensHomologacao, validarImagemDaHomologacao } from "../domain/identidadeImagem.js";
+import { CAMPOS_BASICOS, CARACTERISTICAS, STATUS_EDITAVEIS } from "../domain/publicacao.js";
+import OperacaoImagem from "../models/OperacaoImagem.js";
 import Trilha from "../models/Trilha.js";
 
-export async function listarTrilhas(_req, res, next) {
+// Documentos antigos e cadastros sem fotos não têm reserva de upload.
+const pendenteParaModeracao = { status: "pending", fotosPrevistas: null };
+const formatoRevisao = /^(legacy|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}):(none|\d{1,15})$/;
+
+function filtroDaRevisao(revisao) {
+  const partes = typeof revisao === "string" && formatoRevisao.exec(revisao);
+  if (!partes) return null;
+  const [, identificador, instante] = partes;
+  return {
+    revisaoModeracao: identificador === "legacy" ? null : identificador,
+    updatedAt: instante === "none" ? null : new Date(Number(instante)),
+  };
+}
+
+export async function listarTrilhas(req, res, next) {
   try {
-    const trilhas = await Trilha.find().sort({ createdAt: -1 });
-    res.status(200).json(trilhas);
+    const filtro = filtroBuscaPublica(req.query.busca);
+    const consulta = Trilha.find(filtro);
+    if (filtro.$or) consulta.maxTimeMS(2000);
+    const trilhas = await consulta.populate("proprietario", "nomeUsuario nomeCompleto fotoPerfil").sort({ createdAt: -1 });
+    res.set("Cache-Control", "no-store");
+    res.status(200).json(trilhas.map((trilha) => apresentarTrilha(trilha)));
   } catch (erro) {
-    next(erro);
+    if (erro.status === 400) return res.status(400).json({ mensagem: erro.message });
+    return next(erro);
   }
 }
 
 export async function buscarTrilha(req, res, next) {
   try {
-    const trilha = await Trilha.findById(req.params.id);
+    const trilha = await Trilha.findOne({ _id: req.params.id, status: "approved" });
 
     if (!trilha) {
       return res.status(404).json({ mensagem: "Trilha não encontrada." });
     }
 
-    return res.status(200).json(trilha);
+    return res.status(200).json(apresentarTrilha(trilha));
   } catch (erro) {
     return next(erro);
   }
@@ -25,8 +50,15 @@ export async function buscarTrilha(req, res, next) {
 
 export async function criarTrilha(req, res, next) {
   try {
-    const trilha = await Trilha.create(req.body);
-    res.status(201).json(trilha);
+    if (req.body.caracteristicaPrincipal && !CARACTERISTICAS[req.body.tipoLocal]?.includes(req.body.caracteristicaPrincipal)) {
+      return res.status(400).json({ mensagem: "Característica principal incompatível com o tipo de local." });
+    }
+    const trilha = await Trilha.create({
+      ...req.body,
+      status: "pending",
+      proprietario: req.usuario._id,
+    });
+    res.status(201).json(apresentarTrilha(trilha, "autor"));
   } catch (erro) {
     next(erro);
   }
@@ -34,31 +66,152 @@ export async function criarTrilha(req, res, next) {
 
 export async function atualizarTrilha(req, res, next) {
   try {
-    const trilha = await Trilha.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
-    });
-
-    if (!trilha) {
-      return res.status(404).json({ mensagem: "Trilha não encontrada." });
+    const filtro = { _id: req.params.id, proprietario: req.usuario._id };
+    const atual = await Trilha.findOne(filtro);
+    if (!atual) return res.status(404).json({ mensagem: "Trilha não encontrada." });
+    if (![...STATUS_EDITAVEIS, "approved"].includes(atual.status)) {
+      return res.status(409).json({ mensagem: "Publicação sem status válido; requer revisão administrativa." });
     }
+    if (atual.status === "approved" && CAMPOS_BASICOS.some((campo) => Object.hasOwn(req.body, campo))) {
+      return res.status(403).json({ mensagem: "Publicações aprovadas permitem editar somente características e duração." });
+    }
+    const tipo = Object.hasOwn(req.body, "tipoLocal") ? req.body.tipoLocal : atual.tipoLocal;
+    const dados = { ...req.body };
+    if (Object.hasOwn(dados, "tipoLocal") && dados.tipoLocal !== atual.tipoLocal && !Object.hasOwn(dados, "caracteristicaPrincipal")) {
+      dados.caracteristicaPrincipal = null;
+    }
+    const destaque = Object.hasOwn(dados, "caracteristicaPrincipal") ? dados.caracteristicaPrincipal : atual.caracteristicaPrincipal;
+    if (destaque && !CARACTERISTICAS[tipo]?.includes(destaque)) {
+      return res.status(400).json({ mensagem: "Característica principal incompatível com o tipo de local." });
+    }
+    const trilha = await Trilha.findOneAndUpdate(
+      { ...filtro, status: atual.status, updatedAt: atual.updatedAt ?? null, revisaoModeracao: atual.revisaoModeracao ?? null },
+      { $set: dados },
+      { returnDocument: "after", runValidators: true },
+    );
+    if (!trilha) return res.status(409).json({ mensagem: "Publicação alterada durante a edição. Recarregue e tente novamente." });
 
-    return res.status(200).json(trilha);
+    return res.status(200).json(apresentarTrilha(trilha, "autor"));
   } catch (erro) {
     return next(erro);
   }
 }
 
 export async function excluirTrilha(req, res, next) {
+  let sessao;
   try {
-    const trilha = await Trilha.findByIdAndDelete(req.params.id);
+    sessao = await mongoose.startSession();
+    await sessao.withTransaction(async () => {
+      const filtro = {
+        _id: req.params.id,
+        proprietario: req.usuario._id,
+      };
+      if (escopoImagensHomologacao()) {
+        const atual = await Trilha.findOne(filtro).session(sessao);
+        for (const foto of atual?.fotos || []) validarImagemDaHomologacao(foto.publicId);
+      }
+      const trilha = await Trilha.findOneAndDelete(filtro).session(sessao);
 
-    if (!trilha) {
-      return res.status(404).json({ mensagem: "Trilha não encontrada." });
-    }
+      if (!trilha) {
+        const erro = new Error("Trilha não encontrada.");
+        erro.status = 404;
+        throw erro;
+      }
+
+      const fotos = trilha.fotos || [];
+      if (fotos.some((foto) => typeof foto.publicId !== "string" || !foto.publicId.trim())) {
+        const erro = new Error("Publicação com foto sem identificação de armazenamento; requer reparo antes da exclusão.");
+        erro.status = 409;
+        throw erro;
+      }
+
+      if (fotos.length) {
+        await OperacaoImagem.create(
+          fotos.map((foto) => ({
+            ...identidadeLimpeza(foto),
+            estado: "cleanup_pending",
+            nextAttemptAt: new Date(),
+          })),
+          { session: sessao, ordered: true },
+        );
+      }
+    });
 
     return res.status(204).send();
   } catch (erro) {
+    if (erro.status === 409) return res.status(409).json({ mensagem: erro.message });
+    if (erro.status === 404) {
+      return res.status(404).json({ mensagem: "Trilha não encontrada." });
+    }
     return next(erro);
+  } finally {
+    await sessao?.endSession();
   }
+}
+
+export async function reenviarTrilha(req, res, next) {
+  try {
+    if (Object.keys(req.body || {}).length) return res.status(400).json({ mensagem: "Reenvio não aceita alterações de dados." });
+    const trilha = await Trilha.findOneAndUpdate(
+      { _id: req.params.id, proprietario: req.usuario._id, status: "rejected" },
+      { $set: { status: "pending" }, $push: { historicoModeracao: { acao: "resubmitted", usuario: req.usuario._id, data: new Date() } } },
+      { returnDocument: "after", runValidators: true },
+    );
+    if (!trilha) {
+      const existe = await Trilha.exists({ _id: req.params.id, proprietario: req.usuario._id });
+      return res.status(existe ? 409 : 404).json({ mensagem: existe ? "Somente publicações rejeitadas podem ser reenviadas." : "Trilha não encontrada." });
+    }
+    return res.status(200).json(apresentarTrilha(trilha, "autor"));
+  } catch (erro) { return next(erro); }
+}
+
+export async function listarMinhasTrilhas(req, res, next) {
+  try {
+    const trilhas = await Trilha.find({ proprietario: req.usuario._id }).sort({ createdAt: -1 });
+    res.set("Cache-Control", "private, no-store");
+    return res.json(trilhas.map((trilha) => apresentarTrilha(trilha, "autor")));
+  } catch (erro) { return next(erro); }
+}
+
+export async function moderarTrilha(req, res, next) {
+  try {
+    const { status, motivo, revisao } = req.body || {};
+    if (Object.keys(req.body || {}).some((campo) => !["status", "motivo", "revisao"].includes(campo)) || !["approved", "rejected"].includes(status)
+      || (status === "rejected" && (typeof motivo !== "string" || !motivo.trim() || motivo.length > 2000))
+      || (status === "approved" && motivo !== undefined)) {
+      return res.status(400).json({ mensagem: "Decisão inválida; rejeição exige motivo de até 2000 caracteres." });
+    }
+    const filtroRevisao = filtroDaRevisao(revisao);
+    if (!filtroRevisao) {
+      return res.status(400).json({ mensagem: "Informe a revisão da publicação. Atualize a fila de moderação." });
+    }
+    const trilha = await Trilha.findOneAndUpdate(
+      { _id: req.params.id, ...pendenteParaModeracao, ...filtroRevisao },
+      { $set: { status, motivoRejeicao: status === "rejected" ? motivo.trim() : null },
+        $push: { historicoModeracao: { acao: status, usuario: req.usuario._id, motivo: status === "rejected" ? motivo.trim() : null, data: new Date() } } },
+      { returnDocument: "after", runValidators: true },
+    );
+    if (!trilha) return res.status(409).json({ mensagem: "A publicação mudou ou já foi moderada. Atualize a fila para revisá-la." });
+    return res.json(apresentarTrilha(trilha, "admin"));
+  } catch (erro) { return next(erro); }
+}
+
+export async function listarPendentes(_req, res, next) {
+  try {
+    const trilhas = await Trilha.find(pendenteParaModeracao).sort({ createdAt: 1 });
+    res.set("Cache-Control", "private, no-store");
+    return res.json(trilhas.map((trilha) => ({
+      ...apresentarTrilha(trilha, "admin"),
+      revisao: `${trilha.revisaoModeracao ?? "legacy"}:${trilha.updatedAt?.getTime() ?? "none"}`,
+    })));
+  }
+  catch (erro) { return next(erro); }
+}
+
+export async function buscarMinhaTrilha(req, res, next) {
+  try {
+    const trilha = await Trilha.findOne({ _id: req.params.id, proprietario: req.usuario._id });
+    if (!trilha) return res.status(404).json({ mensagem: "Trilha não encontrada." });
+    return res.json(apresentarTrilha(trilha, "autor"));
+  } catch (erro) { return next(erro); }
 }

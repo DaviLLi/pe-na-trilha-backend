@@ -1,0 +1,277 @@
+import { diagnosticarFalhaUpload } from "../services/diagnosticoUpload.js";
+import { randomUUID } from "node:crypto";
+import mongoose from "mongoose";
+import { apresentarFoto, identidadeLimpeza } from "../domain/fotoPublicacao.js";
+import { escopoImagensHomologacao, validarImagemDaHomologacao } from "../domain/identidadeImagem.js";
+import { STATUS_EDITAVEIS, MAX_FOTOS_TRILHA } from "../domain/publicacao.js";
+import OperacaoImagem from "../models/OperacaoImagem.js";
+import Trilha from "../models/Trilha.js";
+import {
+  criarPublicIdFotoTrilha,
+  enviarImagem,
+} from "../services/cloudinaryService.js";
+
+const DURACAO_LEASE_UPLOAD_MS = 2 * 60 * 1000;
+const INTERVALO_HEARTBEAT_MS = 30000;
+
+function erroHttp(status, mensagem) {
+  const erro = new Error(mensagem);
+  erro.status = status;
+  return erro;
+}
+
+async function agendarLimpezaUpload(id, leaseToken) {
+  await OperacaoImagem.updateOne(
+    { _id: id, estado: "uploading", uploadLeaseToken: leaseToken },
+    {
+      $set: {
+        estado: "cleanup_pending",
+        nextAttemptAt: new Date(Date.now() + 10 * 60 * 1000),
+        uploadLeaseToken: null,
+        uploadLeaseUntil: null,
+        ultimoErro: "Upload não foi associado à trilha.",
+      },
+      $push: {
+        historicoTentativas: {
+          $each: [{ data: new Date(), erro: "Upload não foi associado à trilha." }],
+          $slice: -20,
+        },
+      },
+    },
+  );
+}
+
+async function executarUpload(req, res, next, salvarFoto, statusSucesso, diagnosticar = false) {
+  const leaseToken = randomUUID();
+  const publicId = criarPublicIdFotoTrilha(req.params.id);
+  let operacao;
+  let uploadConcluido = false;
+  let heartbeat;
+
+  try {
+    operacao = await OperacaoImagem.create({
+      publicId,
+      resourceType: "image",
+      deliveryType: "authenticated",
+      estado: "uploading",
+      uploadLeaseToken: leaseToken,
+      uploadLeaseUntil: new Date(Date.now() + DURACAO_LEASE_UPLOAD_MS),
+    });
+
+    heartbeat = setInterval(() => {
+      void OperacaoImagem.updateOne(
+        { _id: operacao._id, estado: "uploading", uploadLeaseToken: leaseToken },
+        { $set: { uploadLeaseUntil: new Date(Date.now() + DURACAO_LEASE_UPLOAD_MS) } },
+      ).catch((erro) => console.error("Falha ao renovar lease de upload:", erro.message));
+    }, INTERVALO_HEARTBEAT_MS);
+    heartbeat.unref?.();
+
+    let imagem;
+    try {
+      imagem = await enviarImagem(req.imagemValidada, publicId, { deliveryType: "authenticated" });
+      uploadConcluido = true;
+    } catch (erroUpload) {
+      if (diagnosticar) {
+        console.error("Falha no upload de foto da publicação:", diagnosticarFalhaUpload(erroUpload));
+      }
+      await agendarLimpezaUpload(operacao._id, leaseToken);
+      return res.status(502).json({ mensagem: "Não foi possível enviar a imagem." });
+    }
+
+    const sessao = await mongoose.startSession();
+    let fotoSalva;
+    try {
+      await sessao.withTransaction(async () => {
+        const agora = new Date();
+        const reservaAtiva = await OperacaoImagem.findOneAndUpdate(
+          {
+            _id: operacao._id,
+            estado: "uploading",
+            uploadLeaseToken: leaseToken,
+            uploadLeaseUntil: { $gt: agora },
+          },
+          { $set: { uploadLeaseUntil: new Date(agora.getTime() + DURACAO_LEASE_UPLOAD_MS) } },
+          { returnDocument: "after", session: sessao },
+        );
+
+        if (!reservaAtiva) {
+          throw erroHttp(409, "A operação de upload expirou. Tente novamente.");
+        }
+
+        fotoSalva = await salvarFoto(imagem, sessao);
+
+        const concluida = await OperacaoImagem.updateOne(
+          { _id: operacao._id, estado: "uploading", uploadLeaseToken: leaseToken },
+          {
+            $set: { estado: "completed", concluidoEm: new Date(), ultimoErro: null },
+            $unset: { uploadLeaseToken: 1, uploadLeaseUntil: 1 },
+          },
+          { session: sessao },
+        );
+        if (concluida.modifiedCount !== 1) {
+          throw erroHttp(409, "A operação de upload expirou. Tente novamente.");
+        }
+      });
+    } finally {
+      await sessao.endSession();
+    }
+
+    return res.status(statusSucesso).json(apresentarFoto(fotoSalva, req.params.id, "autor"));
+  } catch (erro) {
+    if (operacao && uploadConcluido) {
+      try {
+        await agendarLimpezaUpload(operacao._id, leaseToken);
+      } catch (erroDeLimpeza) {
+        console.error("Falha ao registrar limpeza de imagem:", erroDeLimpeza.message);
+      }
+    }
+
+    if (erro.status) {
+      return res.status(erro.status).json({ mensagem: erro.message });
+    }
+
+    return next(erro);
+  } finally {
+    if (heartbeat) {
+      clearInterval(heartbeat);
+    }
+  }
+}
+
+export async function adicionarFotoTrilha(req, res, next) {
+  const foto = {
+    _id: new mongoose.Types.ObjectId(),
+  };
+
+  return executarUpload(
+    req,
+    res,
+    next,
+    async (imagem, sessao) => {
+      const trilha = await Trilha.findOneAndUpdate(
+        {
+          _id: req.params.id,
+          proprietario: req.usuario._id,
+          status: { $in: STATUS_EDITAVEIS },
+          $expr: {
+            $lt: [{ $size: { $ifNull: ["$fotos", []] } }, MAX_FOTOS_TRILHA],
+          },
+        },
+        {
+          $push: {
+            fotos: {
+              ...foto,
+              ...imagem,
+            },
+          },
+        },
+        { returnDocument: "after", session: sessao },
+      );
+
+      if (!trilha) {
+        const trilhaDoProprietario = await Trilha.findOne({
+          _id: req.params.id,
+          proprietario: req.usuario._id,
+          status: { $in: STATUS_EDITAVEIS },
+        }).session(sessao);
+
+        if (!trilhaDoProprietario) {
+          throw erroHttp(404, "Trilha não encontrada.");
+        }
+        throw erroHttp(409, "A trilha já possui o limite de 5 fotos.");
+      }
+
+      if (trilha.fotosPrevistas && trilha.fotos.length >= trilha.fotosPrevistas) {
+        // A última foto e a liberação devem ficar visíveis juntas.
+        const liberacao = await Trilha.updateOne(
+          { _id: req.params.id, proprietario: req.usuario._id, fotosPrevistas: trilha.fotosPrevistas },
+          { $unset: { fotosPrevistas: 1 } },
+          { session: sessao },
+        );
+        if (liberacao.modifiedCount !== 1) throw erroHttp(409, "Não foi possível concluir o envio das fotos.");
+      }
+
+      return trilha.fotos.id(foto._id);
+    },
+    201,
+    true,
+  );
+}
+
+async function buscarFotoEditavel(req, sessao) {
+  const consulta = Trilha.findOne({
+    _id: req.params.id,
+    proprietario: req.usuario._id,
+    status: { $in: STATUS_EDITAVEIS },
+    "fotos._id": req.params.fotoId,
+  });
+  const trilha = await (sessao ? consulta.session(sessao) : consulta);
+  const foto = trilha?.fotos.id(req.params.fotoId);
+  if (!foto) throw erroHttp(404, "Foto da trilha não encontrada.");
+  validarImagemDaHomologacao(foto.publicId);
+  return { trilha, foto };
+}
+
+export async function substituirFotoTrilha(req, res, next) {
+  if (escopoImagensHomologacao()) {
+    try {
+      await buscarFotoEditavel(req);
+    } catch (erro) {
+      if (erro.status) return res.status(erro.status).json({ mensagem: erro.message });
+      return next(erro);
+    }
+  }
+  return executarUpload(
+    req,
+    res,
+    next,
+    async (imagem, sessao) => {
+      const { trilha, foto } = await buscarFotoEditavel(req, sessao);
+      const anterior = identidadeLimpeza(foto);
+      const publicIdAnterior = foto.publicId;
+      Object.assign(foto, imagem);
+      foto.url = undefined;
+      foto.updatedAt = new Date();
+      await trilha.save({ session: sessao });
+
+      if (publicIdAnterior && publicIdAnterior !== imagem.publicId) {
+        await OperacaoImagem.create(
+          [{ ...anterior, estado: "cleanup_pending", nextAttemptAt: new Date() }],
+          { session: sessao },
+        );
+      }
+
+      return foto;
+    },
+    200,
+  );
+}
+
+export async function removerFotoTrilha(req, res, next) {
+  const sessao = await mongoose.startSession();
+  try {
+    await sessao.withTransaction(async () => {
+      const { trilha, foto } = await buscarFotoEditavel(req, sessao);
+      const identidade = identidadeLimpeza(foto);
+      const publicId = foto.publicId;
+      trilha.fotos.pull({ _id: req.params.fotoId });
+      await trilha.save({ session: sessao });
+
+      if (publicId) {
+        await OperacaoImagem.create(
+          [{ ...identidade, estado: "cleanup_pending", nextAttemptAt: new Date() }],
+          { session: sessao },
+        );
+      }
+    });
+
+    return res.status(204).send();
+  } catch (erro) {
+    if (erro.status) {
+      return res.status(erro.status).json({ mensagem: erro.message });
+    }
+    return next(erro);
+  } finally {
+    await sessao.endSession();
+  }
+}

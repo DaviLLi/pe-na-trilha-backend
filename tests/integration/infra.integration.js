@@ -1,0 +1,435 @@
+import mongoose from "mongoose";
+import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { fileTypeFromBuffer } from "file-type";
+import request from "supertest";
+import cloudinary, { configurarCloudinary } from "../../src/config/cloudinary.js";
+import {
+  criarPublicIdFotoPerfil,
+  enviarImagem,
+  excluirImagem,
+} from "../../src/services/cloudinaryService.js";
+import {
+  carregarAmbienteIntegracao,
+  validarBancoDaExecucao,
+} from "./ambiente.js";
+import { conectarComGateDeInfra } from "./infraGate.js";
+import { registrarAssetDaExecucao } from "./registroAssets.js";
+
+const config = carregarAmbienteIntegracao();
+const bancoExecucao = validarBancoDaExecucao(process.env);
+const idExecucao = process.env.TEST_RUN_ID;
+
+function testarCloudinaryReal(nome, executar, timeout) {
+  const executarTeste = config.cloudinary ? test : test.skip;
+  executarTeste(nome, async () => {
+    if (process.env.CLOUDINARY_HOMOLOGACAO_RUN_ID !== idExecucao) {
+      throw new Error("O prefixo Cloudinary da execução não está ativo.");
+    }
+    try {
+      await executar();
+    } catch (erro) {
+      const status = erro?.http_code ?? erro?.error?.http_code ?? erro?.status;
+      const detalhe = Number.isInteger(status) && status >= 100 && status <= 599 ? ` (HTTP ${status})` : "";
+      throw new Error(`Falha na verificação Cloudinary${detalhe}. Consulte o nome do cenário.`);
+    }
+  }, timeout);
+}
+
+function criarResposta() {
+  return {
+    codigo: undefined,
+    corpo: undefined,
+    status(codigo) {
+      this.codigo = codigo;
+      return this;
+    },
+    json(corpo) {
+      this.corpo = corpo;
+      return this;
+    },
+    send(corpo) {
+      this.corpo = corpo;
+      return this;
+    },
+  };
+}
+
+async function registrarOperacoesDaExecucao(db, OperacaoImagem, desde) {
+  const operacoes = await OperacaoImagem.find({ createdAt: { $gte: desde } }).lean();
+  for (const operacao of operacoes) {
+    if (["completed", "cleanup_pending"].includes(operacao.estado)) {
+      await registrarAssetDaExecucao(db, idExecucao, operacao.publicId);
+    }
+  }
+}
+
+describe("infraestrutura MongoDB de integração", () => {
+  let db;
+  let topologia;
+  let marcador;
+  let conectado = false;
+
+  beforeAll(async () => {
+    const infraestrutura = await conectarComGateDeInfra({
+      uri: config.uri,
+      hostsPermitidos: config.hostsPermitidos,
+      runId: idExecucao,
+      conectar: async () => {
+        await mongoose.connect(config.uri, { dbName: bancoExecucao, directConnection: true });
+        return mongoose.connection.db;
+      },
+      desconectar: () => mongoose.disconnect(),
+    });
+
+    db = infraestrutura.db;
+    topologia = infraestrutura.topologia;
+    marcador = infraestrutura.marcador;
+    conectado = true;
+  });
+
+  afterAll(async () => {
+    if (conectado) {
+      await mongoose.disconnect();
+    }
+  });
+
+  test("conecta somente à base isolada e confirma replica set ou mongos", async () => {
+    expect(mongoose.connection.readyState).toBe(1);
+    expect(mongoose.connection.name).toBe(bancoExecucao);
+
+    expect(topologia.setName).toBeTruthy();
+    expect(marcador).toMatchObject({ _id: idExecucao, environment: "integration" });
+
+    const colecoesExistentes = (await db.listCollections().toArray())
+      .map(({ name }) => name)
+      .filter((name) => !name.startsWith("system."));
+    expect(colecoesExistentes).toEqual(["__integration_run"]);
+    expect(marcador.createdAt).toBeInstanceOf(Date);
+  });
+
+  test("persiste commit e confirma rollback consultando o estado no banco", async () => {
+    const nomeColecao = `integration_probe_${idExecucao}`;
+    await db.createCollection(nomeColecao);
+    const colecao = db.collection(nomeColecao);
+    const idCommit = new mongoose.Types.ObjectId();
+    const idRollback = new mongoose.Types.ObjectId();
+    const sessao = await mongoose.startSession();
+
+    try {
+      await sessao.withTransaction(async () => {
+        await colecao.insertOne({ _id: idCommit, runId: idExecucao }, { session: sessao });
+      });
+
+      expect(await colecao.findOne({ _id: idCommit })).toMatchObject({
+        _id: idCommit,
+        runId: idExecucao,
+      });
+
+      const erroRollback = new Error("rollback esperado");
+      await expect(
+        sessao.withTransaction(async () => {
+          await colecao.insertOne({ _id: idRollback, runId: idExecucao }, { session: sessao });
+          throw erroRollback;
+        }),
+      ).rejects.toBe(erroRollback);
+
+      expect(await colecao.findOne({ _id: idRollback })).toBeNull();
+      await colecao.deleteOne({ _id: idCommit, runId: idExecucao });
+      expect(await colecao.findOne({ _id: idCommit })).toBeNull();
+    } finally {
+      await sessao.endSession();
+    }
+  });
+
+  testarCloudinaryReal("envia e exclui uma imagem real no Cloudinary com limpeza registrada", async () => {
+    expect(configurarCloudinary()).toBe(true);
+
+    const { default: OperacaoImagem } = await import("../../src/models/OperacaoImagem.js");
+    await OperacaoImagem.init();
+
+    const publicId = criarPublicIdFotoPerfil();
+    const imagemPng = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jzN8AAAAASUVORK5CYII=",
+      "base64",
+    );
+    const operacao = await OperacaoImagem.create({
+      publicId,
+      estado: "cleanup_pending",
+      nextAttemptAt: new Date(Date.now() + 60 * 60 * 1000),
+    });
+
+    // Registre antes do upload: se o teste falhar ou for interrompido, o teardown
+    // ainda terá autorização persistente para excluir exatamente este publicId.
+    await registrarAssetDaExecucao(db, idExecucao, publicId);
+
+    let tentativaUpload = false;
+    let exclusaoConfirmada = false;
+    try {
+      tentativaUpload = true;
+      const resultadoUpload = await enviarImagem(imagemPng, publicId);
+      expect(resultadoUpload).toMatchObject({ publicId });
+      expect(resultadoUpload.secureUrl).toMatch(/^https:\/\/res\.cloudinary\.com\//);
+
+      const recursoCriado = await cloudinary.api.resource(publicId, { resource_type: "image" });
+      expect(recursoCriado.public_id).toBe(publicId);
+
+      await excluirImagem(publicId);
+
+      let erroConsulta;
+      try {
+        await cloudinary.api.resource(publicId, { resource_type: "image" });
+      } catch (erro) {
+        erroConsulta = erro;
+      }
+      expect(erroConsulta).toBeDefined();
+      expect(erroConsulta.error?.http_code).toBe(404);
+
+      await OperacaoImagem.updateOne(
+        { _id: operacao._id, publicId, estado: "cleanup_pending" },
+        { $set: { estado: "completed", concluidoEm: new Date(), nextAttemptAt: null } },
+      );
+      exclusaoConfirmada = true;
+    } finally {
+      if (tentativaUpload && !exclusaoConfirmada) {
+        try {
+          await excluirImagem(publicId);
+        } catch {
+          // A operação e o registro permanecem pendentes para nova tentativa no teardown.
+        }
+      }
+    }
+  }, 120000);
+
+  testarCloudinaryReal("entrega miniatura e detalhe WebP privados para JPEG, PNG e WebP sintéticos", async () => {
+    const { default: app } = await import("../../src/app.js");
+    const { default: Usuario } = await import("../../src/models/Usuario.js");
+    const { default: Trilha } = await import("../../src/models/Trilha.js");
+    const { default: OperacaoImagem } = await import("../../src/models/OperacaoImagem.js");
+    const iniciouEm = new Date();
+    const senha = "FixtureSintetica1!";
+    const autor = await Usuario.create({
+      nomeCompleto: "Autor sintético de homologação",
+      nomeUsuario: randomUUID().replaceAll("-", "").replace(/[0-9]/g, (n) => "ghijklmnop"[Number(n)]),
+      email: `${randomUUID()}@example.test`,
+      senha,
+    });
+    const trilha = await Trilha.create({
+      titulo: "Imagens sintéticas", descricao: "Teste de integração", endereco: "Homologação", proprietario: autor._id,
+    });
+    const agente = request.agent(app);
+    const origin = "http://localhost:5173";
+    await agente.post("/usuarios/login").set("Origin", origin).send({ identificador: autor.email, senha }).expect(200);
+    const { body: { csrfToken } } = await agente.get("/usuarios/csrf").expect(200);
+
+    try {
+      for (const formato of ["jpg", "png", "webp"]) {
+        const arquivo = `sintetica.${formato}`;
+        const entrada = await readFile(new URL(`./fixtures/imagens-homologacao/${arquivo}`, import.meta.url));
+        const upload = await agente.post(`/trilhas/${trilha.id}/fotos`)
+          .set("Origin", origin).set("X-CSRF-Token", csrfToken).attach("imagem", entrada, arquivo);
+        await registrarOperacoesDaExecucao(db, OperacaoImagem, iniciouEm);
+        expect(upload.status).toBe(201);
+        const foto = (await Trilha.findById(trilha._id)).fotos.id(upload.body._id);
+        const remoto = await cloudinary.api.resource(foto.publicId, { resource_type: "image", type: "authenticated" });
+        expect(remoto.type).toBe("authenticated");
+        expect(remoto.format === formato || (formato === "jpg" && remoto.format === "jpeg")).toBe(true);
+        expect(remoto.width).toBe(640);
+        expect(remoto.height).toBe(480);
+
+        await request(app).get(upload.body.url).expect(401);
+        await request(app).get(`/trilhas/${trilha.id}/fotos/${foto.id}/conteudo`).expect(404);
+        for (const variante of ["miniatura", "detalhe"]) {
+          const resposta = await agente.get(upload.body.url).query({ variante }).expect(200);
+          expect(resposta.headers["content-type"]).toMatch(/^image\/webp/);
+          expect((await fileTypeFromBuffer(resposta.body))?.mime).toBe("image/webp");
+        }
+        const unsigned = new URL(cloudinary.url(foto.publicId, {
+          secure: true, sign_url: false, type: "authenticated", resource_type: "image",
+          version: foto.version, format: remoto.format,
+        }));
+        expect(unsigned.origin === "https://res.cloudinary.com").toBe(true);
+        const anonima = await fetch(unsigned, { redirect: "error", signal: AbortSignal.timeout(15_000) });
+        await anonima.body?.cancel();
+        expect([401, 403, 404]).toContain(anonima.status);
+      }
+    } finally {
+      await registrarOperacoesDaExecucao(db, OperacaoImagem, iniciouEm);
+    }
+  }, 180000);
+
+  testarCloudinaryReal("executa fluxos reais de perfil e concorrência/remoção de fotos de trilha", async () => {
+    expect(configurarCloudinary()).toBe(true);
+    const { default: Usuario } = await import("../../src/models/Usuario.js");
+    const { default: Trilha } = await import("../../src/models/Trilha.js");
+    const { default: OperacaoImagem } = await import("../../src/models/OperacaoImagem.js");
+    const { removerFotoPerfil, substituirFotoPerfil } = await import(
+      "../../src/controllers/fotoPerfilController.js"
+    );
+    const { adicionarFotoTrilha, removerFotoTrilha } = await import(
+      "../../src/controllers/fotoTrilhaController.js"
+    );
+    await OperacaoImagem.init();
+
+    const iniciouEm = new Date();
+    const imagemPng = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jzN8AAAAASUVORK5CYII=",
+      "base64",
+    );
+    let usuario;
+    let trilha;
+
+    try {
+      usuario = await Usuario.create({
+        nomeCompleto: "Usuário Integração Imagens",
+        nomeUsuario: randomUUID()
+          .replaceAll("-", "")
+          .split("")
+          .map((caractere) => String.fromCharCode(97 + Number.parseInt(caractere, 16)))
+          .join(""),
+        email: `${randomUUID()}@example.test`,
+        senha: "Trilha@123Ab",
+      });
+
+      const primeiraFotoPerfil = criarResposta();
+      await substituirFotoPerfil(
+        { usuario: { _id: usuario._id }, imagemValidada: imagemPng },
+        primeiraFotoPerfil,
+        (erro) => { throw erro; },
+      );
+      await registrarOperacoesDaExecucao(db, OperacaoImagem, iniciouEm);
+      expect(primeiraFotoPerfil.codigo).toBe(200);
+      expect(primeiraFotoPerfil.corpo).toHaveProperty("fotoPerfil");
+
+      const segundaFotoPerfil = criarResposta();
+      await substituirFotoPerfil(
+        { usuario: { _id: usuario._id }, imagemValidada: imagemPng },
+        segundaFotoPerfil,
+        (erro) => { throw erro; },
+      );
+      await registrarOperacoesDaExecucao(db, OperacaoImagem, iniciouEm);
+      expect(segundaFotoPerfil.codigo).toBe(200);
+
+      const fotoPerfilRemovida = criarResposta();
+      await removerFotoPerfil(
+        { usuario: { _id: usuario._id } },
+        fotoPerfilRemovida,
+        (erro) => { throw erro; },
+      );
+      await registrarOperacoesDaExecucao(db, OperacaoImagem, iniciouEm);
+      expect(fotoPerfilRemovida.codigo).toBe(200);
+      expect((await Usuario.findById(usuario._id)).fotoPerfil).toBeNull();
+
+      trilha = await Trilha.create({
+        titulo: "Trilha integração de imagens",
+        descricao: "Fixture isolada para concorrência de fotos.",
+        endereco: "Ambiente de teste",
+        proprietario: usuario._id,
+        fotos: Array.from({ length: 4 }, (_, indice) => ({
+          url: `https://example.test/fixture-${indice}.jpg`,
+          publicId: `fixture/${idExecucao}/${indice}`,
+        })),
+      });
+
+      const respostasAdicao = [criarResposta(), criarResposta()];
+      await Promise.all(respostasAdicao.map((res) => adicionarFotoTrilha(
+        {
+          params: { id: trilha._id.toString() },
+          usuario: { _id: usuario._id },
+          imagemValidada: imagemPng,
+        },
+        res,
+        (erro) => { throw erro; },
+      )));
+      await registrarOperacoesDaExecucao(db, OperacaoImagem, iniciouEm);
+
+      expect(respostasAdicao.map((res) => res.codigo).sort()).toEqual([201, 409]);
+      const respostaVencedora = respostasAdicao.find((res) => res.codigo === 201);
+      const trilhaComCincoFotos = await Trilha.findById(trilha._id);
+      expect(trilhaComCincoFotos.fotos).toHaveLength(5);
+
+      const respostaRemocao = criarResposta();
+      await removerFotoTrilha(
+        {
+          params: { id: trilha._id.toString(), fotoId: respostaVencedora.corpo._id.toString() },
+          usuario: { _id: usuario._id },
+        },
+        respostaRemocao,
+        (erro) => { throw erro; },
+      );
+      await registrarOperacoesDaExecucao(db, OperacaoImagem, iniciouEm);
+      expect(respostaRemocao.codigo).toBe(204);
+      expect((await Trilha.findById(trilha._id)).fotos).toHaveLength(4);
+    } finally {
+      await registrarOperacoesDaExecucao(db, OperacaoImagem, iniciouEm);
+    }
+  }, 180000);
+  testarCloudinaryReal("exclui publicação com duas fotos reais, protege terceiros e processa limpeza persistente", async () => {
+    const { default: Trilha } = await import("../../src/models/Trilha.js");
+    const { default: OperacaoImagem } = await import("../../src/models/OperacaoImagem.js");
+    const { adicionarFotoTrilha } = await import("../../src/controllers/fotoTrilhaController.js");
+    const { excluirTrilha } = await import("../../src/controllers/trilhaController.js");
+    const { processarLoteOperacoesImagem } = await import("../../src/services/processarOperacoesImagem.js");
+    const iniciouEm = new Date();
+    const proprietario = new mongoose.Types.ObjectId();
+    const trilha = await Trilha.create({ titulo: "Exclusão integral", descricao: "Fixture isolada", endereco: "Teste", proprietario });
+    const imagemPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jzN8AAAAASUVORK5CYII=", "base64");
+    const propagar = (erro) => { throw erro; };
+    try {
+      for (let i = 0; i < 2; i++) {
+        const resposta = criarResposta();
+        await adicionarFotoTrilha({ params: { id: trilha.id }, usuario: { _id: proprietario }, imagemValidada: imagemPng }, resposta, propagar);
+        await registrarOperacoesDaExecucao(db, OperacaoImagem, iniciouEm);
+        expect(resposta.codigo).toBe(201);
+      }
+      await Trilha.updateOne({ _id: trilha._id }, { $set: { status: "approved" } });
+      const fotos = (await Trilha.findById(trilha._id)).fotos;
+      expect(fotos).toHaveLength(2);
+      const negada = criarResposta();
+      await excluirTrilha({ params: { id: trilha.id }, usuario: { _id: new mongoose.Types.ObjectId() } }, negada, propagar);
+      expect(negada.codigo).toBe(404);
+      expect(await Trilha.exists({ _id: trilha._id })).toBeTruthy();
+      const resposta = criarResposta();
+      await excluirTrilha({ params: { id: trilha.id }, usuario: { _id: proprietario } }, resposta, propagar);
+      expect(resposta.codigo).toBe(204);
+      expect(await Trilha.findById(trilha._id)).toBeNull();
+      const ids = fotos.map((foto) => foto.publicId);
+      expect(await OperacaoImagem.countDocuments({ publicId: { $in: ids }, estado: "cleanup_pending" })).toBe(2);
+      await processarLoteOperacoesImagem();
+      expect(await OperacaoImagem.countDocuments({ publicId: { $in: ids }, estado: "completed" })).toBe(4);
+      for (const foto of fotos) {
+        let erroConsulta;
+        try { await cloudinary.api.resource(foto.publicId, { resource_type: "image", type: "authenticated" }); } catch (erro) { erroConsulta = erro; }
+        expect(erroConsulta?.error?.http_code).toBe(404);
+      }
+      const semFotos = await Trilha.create({ titulo: "Sem fotos", descricao: "Fixture", endereco: "Teste", proprietario });
+      const segunda = criarResposta();
+      await excluirTrilha({ params: { id: semFotos.id }, usuario: { _id: proprietario } }, segunda, propagar);
+      expect(segunda.codigo).toBe(204);
+      expect(await Trilha.findById(semFotos._id)).toBeNull();
+    } finally {
+      await registrarOperacoesDaExecucao(db, OperacaoImagem, iniciouEm);
+    }
+  }, 180000);
+
+  test("busca pública consulta respostas persistidas e nunca inclui pendentes ou rejeitadas", async () => {
+    const { default: Trilha } = await import("../../src/models/Trilha.js");
+    const { default: app } = await import("../../src/app.js");
+    const { default: request } = await import("supertest");
+    const proprietario = new mongoose.Types.ObjectId();
+    const dados = { titulo: "Percurso Literal .*", descricao: "Vegetação de altitude", endereco: "Serra Azul", tipoLocal: "Cachoeira", dificuldade: "Moderada", condicaoCaminho: "Pedra", sinalizacao: "Parcial", estacionamento: "Gratuito", banheiro: "Não sei informar", alimentacao: "Quiosque", estruturaBanho: "Chuveiro", acesso: "Com autorização", caracteristicaPrincipal: "Piscina natural", duracao: { horas: 1, minutos: 35 }, proprietario };
+    const publicadas = [];
+    for (const status of ["approved", "pending", "rejected"]) publicadas.push(await Trilha.create({ ...dados, status }));
+    for (const termo of ["percurso", "altitude", "serra azul", "CaChO", "moder", "pedra", "parcial", "gratuito", "sei informar", "quiosque", "chuveiro", "autorização", "piscina", ".*", "35"]) {
+      const resposta = await request(app).get("/trilhas").query({ busca: termo });
+      expect(resposta.status).toBe(200);
+      expect(resposta.body.map(p => p._id)).toContain(publicadas[0].id);
+      expect(resposta.body.map(p => p._id)).not.toEqual(expect.arrayContaining([publicadas[1].id]));
+      expect(resposta.body.map(p => p._id)).not.toEqual(expect.arrayContaining([publicadas[2].id]));
+      expect(resposta.body.every(p => p.status === "approved")).toBe(true);
+    }
+    const semResultado = await request(app).get("/trilhas").query({ busca: "termo inexistente exclusivo" });
+    expect(semResultado.body).toEqual([]);
+  }, 60000);
+
+});
