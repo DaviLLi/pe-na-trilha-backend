@@ -116,7 +116,7 @@ export default async function globalSetup() {
       config.hostsPermitidos,
       () => {
         etapa = "conexão MongoDB";
-        return mongoose.connect(config.uri, { dbName: banco });
+        return mongoose.connect(config.uri, { dbName: banco, directConnection: true });
       },
     );
     const db = mongoose.connection.db;

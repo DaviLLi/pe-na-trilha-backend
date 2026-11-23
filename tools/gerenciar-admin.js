@@ -14,7 +14,7 @@ import {
 const mensagens = {
   ENTRADA: "Informe apenas --banco com o nome explícito do banco pretendido.",
   TERMINAL: "A operação exige terminal interativo.",
-  AMBIENTE: "Defina NODE_ENV como development ou production explicitamente.",
+  AMBIENTE: "Use NODE_ENV=production com APP_ENV=production ou homologation.",
   BANCO: "O banco configurado não corresponde ao banco solicitado.",
   EMAIL_INVALIDO: "E-mail inválido.",
   CONTA_INEXISTENTE: "Nenhuma conta possui esse e-mail.",
@@ -33,9 +33,6 @@ const mensagens = {
 };
 
 async function configurarBanco() {
-  if (process.env.APP_ENV && process.env.APP_ENV !== process.env.NODE_ENV) {
-    throw new ErroGerenciamentoAdmin("AMBIENTE");
-  }
   await import("../src/config/carregarAmbiente.js");
   const uri = obterUriMongo();
   return {
@@ -81,7 +78,7 @@ export async function lerSenhaAdmin(entrada, saida) {
 }
 
 export async function executarGerenciamentoAdmin(args, {
-  ambiente = process.env.NODE_ENV,
+  ambiente = process.env.APP_ENV ?? process.env.NODE_ENV,
   entrada = process.stdin,
   saida = process.stdout,
   abrirTerminal = createInterface,
@@ -94,7 +91,7 @@ export async function executarGerenciamentoAdmin(args, {
     throw new ErroGerenciamentoAdmin("ENTRADA");
   }
   if (!entrada.isTTY || !saida.isTTY) throw new ErroGerenciamentoAdmin("TERMINAL");
-  if (!["development", "production"].includes(ambiente)) throw new ErroGerenciamentoAdmin("AMBIENTE");
+  if (!["production", "homologation"].includes(ambiente)) throw new ErroGerenciamentoAdmin("AMBIENTE");
   const conexao = await obterBanco();
   conferirBancoNaUri(conexao.uri, banco);
 

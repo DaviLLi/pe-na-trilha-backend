@@ -4,7 +4,7 @@
 
 O workflow **CI** roda em pushes para `main` e `develop` e em pull requests direcionados a essas branches. O job **Validar backend** prepara o Node.js 22 LTS, executa `npm ci` com o `package-lock.json` da raiz, roda `npm run lint` e executa toda a suíte padrão com `npm test -- --runInBand`. O Jest gera o relatório de cobertura. A API é iniciada diretamente pelo Node.js e o projeto não possui etapa de build.
 
-A CI roda com as dependências do lockfile e não usa secrets. A suíte externa `npm run test:integration` continua disponível sob demanda em ambiente descartável, com suporte a transações no MongoDB e conta Cloudinary dedicada. As variáveis `TEST_*` e o procedimento estão na seção [Testes de integração](../README.md#testes-de-integração). Esses testes fazem operações reais nessas duas plataformas.
+A CI usa o lockfile e testa com dependências simuladas. As verificações somente leitura de produção e homologação estão no [guia de ambientes](ambientes.md#verificações-locais).
 
 ## Como verificar no GitHub
 

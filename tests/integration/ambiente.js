@@ -2,11 +2,9 @@ import { randomBytes } from "node:crypto";
 import { lerArquivoAmbiente } from "../../src/config/ambientes.js";
 import { obterCloudinaryHomologacao } from "../../src/config/isolamentoCloudinary.js";
 import {
-  HOST_ATLAS_TESTES,
   alteraDestinoMongo,
   lerUriMongo,
   normalizarHostMongo,
-  pertenceAoAtlas,
 } from "../../src/config/isolamentoMongo.js";
 
 const MARCADOR_BANCO_TESTE = /(?:^|[_-])(?:test|testing|integration|ci)(?:[_-]|$)/i;
@@ -26,8 +24,8 @@ export function validarAmbienteIntegracao(ambiente) {
 
   const url = lerUriMongo(uri, "TEST_MONGO_URI");
   const hostMongo = normalizarHostMongo(url.hostname);
-  if (url.protocol !== "mongodb+srv:" || url.port || alteraDestinoMongo(url) || hostMongo !== HOST_ATLAS_TESTES) {
-    throw new Error("TEST_MONGO_URI deve apontar para o seed SRV do Atlas de testes autorizado.");
+  if (url.protocol !== "mongodb:" || alteraDestinoMongo(url) || hostMongo !== "127.0.0.1") {
+    throw new Error("TEST_MONGO_URI deve usar um replica set descartável em 127.0.0.1.");
   }
 
   let bancoBase;
@@ -44,27 +42,10 @@ export function validarAmbienteIntegracao(ambiente) {
     throw new Error("O nome do banco em TEST_MONGO_URI precisa conter um marcador de teste válido.");
   }
 
-  const hostsPermitidos = (ambiente.TEST_MONGO_ALLOWED_HOSTS || "")
-    .split(",")
-    .map(normalizarHostMongo)
-    .filter(Boolean);
-
-  if (!hostsPermitidos.length || hostsPermitidos.some((host) => !/^[a-z0-9.-]+$/.test(host)
-    || !pertenceAoAtlas(host, HOST_ATLAS_TESTES))) {
-    throw new Error("TEST_MONGO_ALLOWED_HOSTS deve conter somente hosts explícitos do Atlas de testes.");
-  }
-  if (!hostsPermitidos.includes(hostMongo)) {
-    throw new Error("O host de TEST_MONGO_URI não está na allowlist.");
-  }
-
-  return { uri, bancoBase, hostMongo, hostsPermitidos };
+  return { uri, bancoBase, hostMongo, hostsPermitidos: [hostMongo] };
 }
 
 export function carregarAmbienteIntegracao(ambiente = process.env, destinosCloudinary = []) {
-  const arquivo = lerArquivoAmbiente(".env.integration");
-  for (const nome of ["TEST_ENVIRONMENT", "TEST_MONGO_URI", "TEST_MONGO_ALLOWED_HOSTS", "TEST_CLOUDINARY_REAL"]) {
-    if (arquivo[nome] !== undefined) ambiente[nome] ??= arquivo[nome];
-  }
   const config = validarAmbienteIntegracao(ambiente);
   if (ambiente.TEST_CLOUDINARY_REAL === "1") {
     const homologacao = { ...lerArquivoAmbiente(".env.homologation"), ...ambiente };

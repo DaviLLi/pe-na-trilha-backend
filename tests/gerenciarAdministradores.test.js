@@ -305,7 +305,7 @@ function terminalSintetico(acao, respostas = [], { ttyEntrada = true, ttySaida =
     alterar: jest.fn((args) => alterarPerfilAdmin(args, t.deps)),
   };
   const deps = {
-    ambiente: "development",
+    ambiente: "production",
     entrada: { isTTY: ttyEntrada },
     saida: { isTTY: ttySaida, write: jest.fn() },
     abrirTerminal: jest.fn(() => terminal),
@@ -317,10 +317,10 @@ function terminalSintetico(acao, respostas = [], { ttyEntrada = true, ttySaida =
 
 describe("confirmação e terminal", () => {
   test.each(["promover", "remover"])("confirma por ambiente, banco e e-mail no modo %s", async (acao) => {
-    const frase = acao.toUpperCase() + " ADMIN development pe_na_trilha alvo@example.test";
+    const frase = acao.toUpperCase() + " ADMIN production pe_na_trilha alvo@example.test";
     const x = terminalSintetico(acao, [" ALVO@example.test ", frase, "original@example.test"]);
     await x.executar();
-    expect(x.deps.saida.write).toHaveBeenCalledWith("Ambiente: development | Banco: pe_na_trilha\n");
+    expect(x.deps.saida.write).toHaveBeenCalledWith("Ambiente: production | Banco: pe_na_trilha\n");
     expect(x.terminal.question).toHaveBeenNthCalledWith(2, "Digite exatamente " + frase + ": ", expect.any(Object));
     expect(x.banco.localizar.mock.invocationCallOrder[0]).toBeLessThan(x.terminal.question.mock.invocationCallOrder[1]);
     expect(x.banco.alterar).toHaveBeenCalledWith({
@@ -332,7 +332,7 @@ describe("confirmação e terminal", () => {
   });
 
   test.each(["promover", "remover"])("recusa a identidade de um administrador comum no modo %s", async (acao) => {
-    const frase = acao.toUpperCase() + " ADMIN development pe_na_trilha alvo@example.test";
+    const frase = acao.toUpperCase() + " ADMIN production pe_na_trilha alvo@example.test";
     const x = terminalSintetico(acao, ["alvo@example.test", frase, "outro@example.test"]);
     await expect(x.executar()).rejects.toMatchObject({ codigo: "IDENTIDADE_NAO_CONFIRMADA" });
     expect(x.t.deps.usuarios.updateOne).not.toHaveBeenCalled();
@@ -400,7 +400,7 @@ describe("confirmação e terminal", () => {
     x.terminal.question.mockImplementationOnce(async (_pergunta, opcoes) => {
       x.terminal.emit("close");
       expect(opcoes.signal.aborted).toBe(true);
-      return "REMOVER ADMIN development pe_na_trilha alvo@example.test";
+      return "REMOVER ADMIN production pe_na_trilha alvo@example.test";
     });
     await expect(x.executar()).rejects.toMatchObject({ codigo: "CONFIRMACAO" });
     expect(x.banco.alterar).not.toHaveBeenCalled();

@@ -76,7 +76,7 @@ describe("infraestrutura MongoDB de integração", () => {
       hostsPermitidos: config.hostsPermitidos,
       runId: idExecucao,
       conectar: async () => {
-        await mongoose.connect(config.uri, { dbName: bancoExecucao });
+        await mongoose.connect(config.uri, { dbName: bancoExecucao, directConnection: true });
         return mongoose.connection.db;
       },
       desconectar: () => mongoose.disconnect(),

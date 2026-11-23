@@ -21,24 +21,21 @@ MongoDB do backend: esse acesso deve ficar restrito aos operadores autorizados.
 
 1. Cadastre normalmente a conta que será administradora e confirme o acesso com
    login. Confirme a titularidade e o e-mail da conta; não é necessário consultar seu ID.
-2. Na pasta do backend, confira a conexão/cluster e o banco pretendido. O comando
-   usa o carregador existente: development → .env/MONGO_URI_DEVELOPMENT;
-   production → .env.production/MONGO_URI_PRODUCTION. Variáveis herdadas prevalecem.
-3. Para o ambiente local já configurado com banco explícito pe_na_trilha:
+2. Na pasta do backend, confira o ambiente e o banco no [guia de ambientes](ambientes.md).
+3. Para inicializar somente uma homologação que ainda não possua administrador:
 
    ```bash
-   NODE_ENV=development npm run admin:provisionar -- --banco pe_na_trilha
+   NODE_ENV=production APP_ENV=homologation npm run admin:provisionar -- --banco pe_na_trilha_homologacao
    ```
 
-   Não execute production nesta etapa sem autorização operacional separada.
+   Preserve o administrador já existente em produção.
 4. Informe somente o e-mail no terminal interativo. Digite exatamente a confirmação
    apresentada, incluindo ambiente e banco. Sem confirmação não há conexão.
 5. Saia e entre novamente no frontend para atualizar a conta em memória, e abra
    Administração no menu ou /admin.
 
 O argumento --banco deve corresponder ao banco explícito da URI; ausência de banco,
-divergência ou opção dbName na query interrompem o comando. O cluster continua sendo
-o configurado no ambiente; o argumento de banco não verifica identidade do cluster.
+divergência ou opção dbName na query interrompem o comando. A configuração valida o seed SRV e o banco do ambiente escolhido antes da conexão.
 Não passa senha por argumentos, não imprime URI e não aceita execução por pipe/CI.
 
 O e-mail é normalizado da mesma forma que no cadastro. A consulta MongoDB ocorre

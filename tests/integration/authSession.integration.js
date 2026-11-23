@@ -27,7 +27,7 @@ describe("sessão cookie, renovação e CSRF", () => {
       hostsPermitidos: config.hostsPermitidos,
       runId: process.env.TEST_RUN_ID,
       conectar: async () => {
-        await mongoose.connect(config.uri, { dbName: bancoExecucao });
+        await mongoose.connect(config.uri, { dbName: bancoExecucao, directConnection: true });
         return mongoose.connection.db;
       },
       desconectar: () => mongoose.disconnect(),
