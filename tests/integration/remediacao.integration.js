@@ -51,7 +51,7 @@ describe("remediação no replica set isolado", () => {
       hostsPermitidos: config.hostsPermitidos,
       runId: process.env.TEST_RUN_ID,
       conectar: async () => {
-        await mongoose.connect(config.uri, { dbName: banco });
+        await mongoose.connect(config.uri, { dbName: banco, directConnection: true });
         return mongoose.connection.db;
       },
       desconectar: () => mongoose.disconnect(),

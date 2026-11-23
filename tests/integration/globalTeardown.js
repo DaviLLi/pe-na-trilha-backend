@@ -30,7 +30,7 @@ export default async function globalTeardown() {
     await conectarAposValidarSrv(
       config.uri,
       config.hostsPermitidos,
-      () => mongoose.connect(config.uri, { dbName: bancoExecucao }),
+      () => mongoose.connect(config.uri, { dbName: bancoExecucao, directConnection: true }),
     );
     conectado = true;
     const db = mongoose.connection.db;

@@ -36,7 +36,7 @@ try {
   const idExecucao = process.env.TEST_RUN_ID ?? randomUUID().replaceAll("-", "");
   const bancoExecucao = criarNomeBancoDaExecucao(idExecucao);
   if (opcao === "--check") {
-    console.log(`Configuração do Atlas de testes válida. Cloudinary real: ${config.cloudinary ? "prefixo e configuração local validados" : "desativado"}.`);
+    console.log(`Configuração da fixture MongoDB válida. Cloudinary real: ${config.cloudinary ? "prefixo e configuração local validados" : "desativado"}.`);
     if (process.env.TEST_RUN_ID !== undefined) console.log(`Banco de integração selecionado: ${bancoExecucao}.`);
   } else {
     const ambienteExecucao = { ...process.env };

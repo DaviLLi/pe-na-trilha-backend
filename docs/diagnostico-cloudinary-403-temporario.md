@@ -9,7 +9,7 @@ assinatura, preset, tipo authenticated, agent, proxy, TLS ou resposta pública 5
    inicie a instância de homologação com o diagnóstico ativado:
 
    ```bash
-   CLOUDINARY_DIAGNOSTICO_403=1 npm run start:homologation
+   CLOUDINARY_DIAGNOSTICO_403=1 npm run dev:homologation
    ```
 
    A variável é apenas um opt-in de diagnóstico; não é credencial. Não precisa ser

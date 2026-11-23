@@ -1,54 +1,19 @@
-# Ambientes do backend
+# Ambientes do Pé na Trilha
 
-| Ambiente | Comando | Configuração | MongoDB e mídia |
-| --- | --- | --- | --- |
-| Desenvolvimento | `npm run dev` | `.env` | MongoDB local dedicado, Cloudinary desabilitado |
-| Testes unitários | `npm test` | Jest e valores fictícios de cada suíte | Sem credenciais de MongoDB ou Cloudinary herdadas |
-| Integração | `npm run test:integration` | `.env.integration` | Atlas de testes, Cloudinary desabilitado por padrão |
-| Homologação | `npm run start:homologation` | `.env.homologation` | Banco `pe_na_trilha_homologacao` no Atlas de testes e pasta reservada no Cloudinary compartilhado |
-| Produção | `npm start` | Variáveis do serviço ou `.env.production` | MongoDB e Cloudinary de produção |
+| Ambiente | Banco Atlas | Comando local nos dois projetos | API | Frontend |
+| --- | --- | --- | --- | --- |
+| Produção | `pe_na_trilha` em `penatrilhaproducao.squuj5c.mongodb.net` | `npm run dev:production` | `http://localhost:3000` | `http://localhost:5173` |
+| Homologação e testes | `pe_na_trilha_homologacao` em `pe-na-trilha-testes.vcnkitn.mongodb.net` | `npm run dev:homologation` | `http://127.0.0.1:3001` | `http://127.0.0.1:5174` |
 
-Os comandos da API definem o ambiente antes de ler o arquivo correspondente. As variáveis já exportadas no processo têm precedência. Homologação usa `APP_ENV=homologation` e `NODE_ENV=production` para aplicar a configuração de cookies HTTPS. Os comandos administrativos usam o carregador e a proteção MongoDB da API e aceitam somente desenvolvimento ou produção.
+Execute o frontend dentro de `pe-na-trilha/` no repositório frontend. Use os endereços da tabela para manter os cookies de cada ambiente em hosts distintos. Os comandos locais fixam as origens permitidas e as portas de cada par.
 
-### Onde a configuração é usada
+## Arquivos de ambiente
 
-- `package.json`, `src/server.js`, `src/config/carregarAmbiente.js`, `src/config/database.js`, `tools/provisionar-primeiro-admin.js` e `tools/gerenciar-admin.js` compõem os pontos de entrada da API e dos comandos administrativos.
-- `jest.config.js` e `tests/unitEnvironment.js` isolam o processo dos testes unitários. `jest.integration.config.js` e os arquivos `run.js`, `ambiente.js`, `setupEnvironment.js`, `globalSetup.js`, `globalTeardown.js`, `topologia.js` e `infraGate.js` em `tests/integration/` preparam e validam as conexões da suíte de integração. Os cenários `authSession.integration.js`, `infra.integration.js` e `remediacao.integration.js` consomem essa configuração.
-- `src/config/cloudinary.js` configura o SDK. `src/config/isolamentoCloudinary.js` valida a mídia de homologação. `src/domain/identidadeImagem.js`, `src/services/cloudinaryService.js` e `src/services/entregaFotoService.js` aplicam o escopo por execução. Os módulos `diagnosticoUpload.js` e `diagnosticoUpload403Temporario.js` tratam o diagnóstico de upload.
+- Backend de produção lê `.env.production` ou as variáveis do Render. Use `MONGO_URI_PRODUCTION` com o banco `pe_na_trilha`, os valores originais de `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` e `CLOUDINARY_API_SECRET`, além de `JWT_SECRET` e `CSRF_SECRET` próprios de produção.
+- Backend de homologação lê `.env.homologation`. Use `MONGO_URI_HOMOLOGATION`, `MONGO_HOST_HOMOLOGATION` e os segredos `JWT_SECRET` e `CSRF_SECRET` próprios de homologação. Para mídia, use `HOMOLOGATION_CLOUDINARY_CLOUD_NAME`, `HOMOLOGATION_CLOUDINARY_API_KEY`, `HOMOLOGATION_CLOUDINARY_API_SECRET`, `HOMOLOGATION_CLOUDINARY_PREFIX=homologacao/` e `HOMOLOGATION_CLOUDINARY_FOLDER_MODE=dynamic`. Os modelos do repositório listam os nomes sem valores secretos.
+- Frontend local usa os endereços fixos da tabela. O build de produção recebe `VITE_API_URL` com a origem HTTPS real da API pelo painel da Vercel ou por `pe-na-trilha/.env.production` para build local. O build de homologação aponta para a API local de homologação.
 
-## Desenvolvimento local
-
-1. Use um MongoDB local como replica set de um membro, vinculado ao loopback, e reserve um banco exclusivo para o projeto. Transações são necessárias para sessões e fotos.
-2. Use [.env.example](../.env.example) como referência e preencha `MONGO_URI_DEVELOPMENT` com a URI real desse banco. A URI deve incluir o nome do banco e usar um único IP de loopback, `127.0.0.1` ou `[::1]`. O driver usa conexão direta para limitar a descoberta de destinos.
-3. Configure segredos próprios para JWT e CSRF. Inicie com `npm run dev` e verifique `GET /healthz`.
-
-O desenvolvimento local dispensa um cluster Atlas e uma chave Cloudinary.
-
-## Atlas de testes
-
-1. Use uma credencial própria para a suíte, com acesso restrito ao cluster Atlas de testes. A suíte cria uma base descartável `tst_<TEST_RUN_ID>` por execução. A credencial precisa poder criar coleções e índices, ler, inserir, atualizar e remover documentos e usar transações nesse banco. [Usuários de banco no Atlas](https://www.mongodb.com/docs/atlas/security-add-mongodb-users/)
-2. Autorize somente os IPs dos executores de integração no projeto de testes. Preencha `TEST_MONGO_URI` com a URI SRV do Atlas de testes, usando um nome de banco-base com um segmento `test`, `testing`, `integration` ou `ci`. Em `TEST_MONGO_ALLOWED_HOSTS`, inclua o seed e os membros SRV do cluster. Mantenha a saída de rede limitada aos destinos aprovados. [Lista de acesso por IP](https://www.mongodb.com/docs/atlas/security/ip-access-list/)
-3. Confira a seleção com `npm run test:integration -- --check`. Esse comando só valida configuração. A execução sem `--check` conecta ao Atlas de testes.
-
-O setup exige um banco sem coleções de aplicação e grava o marcador `__integration_run`. Setup, cenários e teardown conferem o nome do banco da conexão. O teardown exige o marcador da execução e remove documentos desse banco, preservando as coleções e seus índices. A suíte não executa `dropDatabase` ou `dropCollection`.
-
-### Restringir a credencial da suíte por banco
-
-O Atlas concede permissões por nome exato de banco. `tst_*` é uma convenção da aplicação. Uma permissão de escrita para todos os bancos também abrange `pe_na_trilha_homologacao`, mesmo quando limitada ao cluster de testes. Para isolar os dois usuários no Atlas, selecione o identificador antes de conceder acesso:
-
-```bash
-pnt_run_id="$(node -p 'require("node:crypto").randomBytes(16).toString("hex")')"
-TEST_RUN_ID="$pnt_run_id" npm run test:integration -- --check
-```
-
-Em **Database & Network Access → Database Users**, atribua `readWrite` somente ao banco exato mostrado pelo preflight. Use uma credencial de integração sem papéis amplos adicionais e informe-a em `TEST_MONGO_URI`, mantendo o banco-base de teste e os parâmetros de autenticação da URI. No mesmo terminal, execute `TEST_RUN_ID="$pnt_run_id" npm run test:integration`. Use um identificador novo e atualize a concessão a cada execução. As coleções deixadas pelo teardown fazem o setup recusar o reaproveitamento do mesmo banco. [Usuários no Atlas](https://www.mongodb.com/docs/atlas/security-add-mongodb-users/) · [Escopo de recursos e permissões](https://www.mongodb.com/docs/manual/reference/resource-document/)
-
-## MongoDB e Cloudinary de homologação
-
-1. No projeto Atlas de testes existente, crie um usuário próprio para homologação. Atribua `readWrite` somente a `pe_na_trilha_homologacao` e selecione a restrição ao cluster de testes. Na lista de acesso do projeto, confirme o IP de saída do backend de homologação e adicione-o caso ainda falte. Use a URI SRV desse usuário em `MONGO_URI_HOMOLOGATION`, com o caminho `/pe_na_trilha_homologacao` antes dos parâmetros. Mantenha os parâmetros de autenticação emitidos pelo Atlas. Configure `MONGO_HOST_HOMOLOGATION=pe-na-trilha-testes.vcnkitn.mongodb.net`. A inicialização exige esse par de host e banco. [Usuários de banco no Atlas](https://www.mongodb.com/docs/atlas/security-add-mongodb-users/) · [Lista de acesso por IP](https://www.mongodb.com/docs/atlas/security/ip-access-list/)
-2. No Product Environment existente do Cloudinary, confirme que a pasta da Media Library e o prefixo de IDs públicos `homologacao/` estão livres de imagens de produção. Reserve essa pasta e mantenha seus assets e IDs dentro dela. Informe o Cloud Name compartilhado em `HOMOLOGATION_CLOUDINARY_CLOUD_NAME`, uma credencial própria em `HOMOLOGATION_CLOUDINARY_API_KEY` e `HOMOLOGATION_CLOUDINARY_API_SECRET`, e `homologacao/` em `HOMOLOGATION_CLOUDINARY_PREFIX`. Preencha `HOMOLOGATION_CLOUDINARY_FOLDER_MODE` com `dynamic` ou `fixed` conforme informado pelo Console. Em pastas dinâmicas, o backend envia `asset_folder=homologacao` além do ID completo. Em pastas fixas, usa `folder=homologacao` e o ID relativo. [Modos de pasta](https://cloudinary.com/documentation/folder_modes)
-3. Use [.env.homologation.example](../.env.homologation.example) e preencha `FRONTEND_ORIGINS` com a origem HTTPS de homologação e os segredos exclusivos `JWT_SECRET` e `CSRF_SECRET`.
-4. A API usa IDs sob `homologacao/perfis/` e `homologacao/trilhas/`. Com autorização para testes reais, use somente imagens sintéticas e valide primeiro com `TEST_CLOUDINARY_REAL=1 npm run test:integration -- --check`. A execução real usa o banco descartável e reserva `homologacao/integracao/<TEST_RUN_ID>/` para seus assets. O preflight local valida as variáveis e o escopo do código. Confirme as permissões efetivas da chave separadamente no provedor.
+Os arquivos reais ficam fora do Git. Arquivos locais antigos ficam preservados como arquivo histórico e estão fora do carregamento dos comandos.
 
 ### Permissões da chave de homologação
 
@@ -56,6 +21,21 @@ Crie uma chave própria com o papel **Media Library User** e, pelo Admin API `fo
 
 Antes de ativar o ambiente, confirme com imagens sintéticas que essa chave permite upload, geração antecipada de variantes, entrega assinada e exclusão individual. Confirme que a chave respeita a pasta reservada. A função das chaves ativas e a cobertura real das permissões dependem dessa verificação. Os limites de uso, a CDN e as configurações globais do Product Environment são compartilhados. Fotos de perfil continuam públicas por URL e o prefixo, por si só, não impõe autorização no provedor.
 
-## Produção
+## Verificações locais
 
-Mantenha a URI e as credenciais de produção no serviço de produção. Use [.env.production.example](../.env.production.example) como inventário. A aplicação carrega `MONGO_URI_PRODUCTION`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` e `CLOUDINARY_API_SECRET` desse ambiente.
+Na raiz do backend, acrescente `--check-connection` para conferir a identidade do banco somente em leitura:
+
+```bash
+npm run dev:production -- --check-connection
+npm run dev:homologation -- --check-connection
+```
+
+Esses comandos consultam a topologia e os metadados do banco. A API, a criação de índices e o worker ficam desligados nessa verificação. O comando sem a opção inicia a aplicação normal no ambiente escolhido.
+
+Use `npm test` e `npm run lint` nos dois projetos. A suíte de persistência `npm run test:integration` só aceita um replica set descartável em `127.0.0.1`, indicado por `TEST_MONGO_URI` com `TEST_ENVIRONMENT=integration`. Ela é uma fixture automatizada e fica fora dos dois bancos Atlas. Para habilitar seu Cloudinary real em uma execução autorizada, use `TEST_CLOUDINARY_REAL=1`. A suíte usa as credenciais de homologação e o prefixo por execução.
+
+## Nuvem
+
+- Render usa a raiz do backend, Node 22, build `npm ci`, start `npm start` e health check `/healthz`. Cadastre os segredos de produção no serviço. Deixe o Render definir `PORT` e informe em `FRONTEND_ORIGINS` a origem HTTPS exata da Vercel.
+- Vercel usa `pe-na-trilha/` como raiz, `npm run build`, saída `dist` e a origem HTTPS do Render em `VITE_API_URL`. O arquivo `vercel.json` registra o fallback da SPA.
+- Antes da publicação, verifique cookies de sessão, CSRF e CORS nos domínios finais. Mantenha os usuários Atlas e as chaves Cloudinary separados por ambiente, preservando os dados e o administrador principal de produção.

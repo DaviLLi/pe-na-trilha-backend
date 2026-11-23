@@ -23,8 +23,8 @@ Para integrar o frontend, faça as chamadas por HTTPS com `withCredentials: true
 Execute na raiz do backend, selecionando explicitamente o ambiente. `--banco` deve corresponder ao banco da URI configurada.
 
 ```bash
-NODE_ENV=development npm run admin:promover -- --banco pe_na_trilha
-NODE_ENV=development npm run admin:remover -- --banco pe_na_trilha
+NODE_ENV=production APP_ENV=homologation npm run admin:promover -- --banco pe_na_trilha_homologacao
+NODE_ENV=production APP_ENV=homologation npm run admin:remover -- --banco pe_na_trilha_homologacao
 ```
 
 Informe o e-mail da conta alvo, confira a identificação e digite a frase apresentada. Em seguida, informe o e-mail e a senha atual da sua conta operadora. A senha é lida sem eco. O comando `admin:provisionar` continua dedicado ao primeiro administrador.

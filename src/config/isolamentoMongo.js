@@ -1,6 +1,7 @@
 export const HOST_ATLAS_PRODUCAO = "penatrilhaproducao.squuj5c.mongodb.net";
 export const HOST_ATLAS_TESTES = "pe-na-trilha-testes.vcnkitn.mongodb.net";
 export const BANCO_HOMOLOGACAO = "pe_na_trilha_homologacao";
+export const BANCO_PRODUCAO = "pe_na_trilha";
 
 export function normalizarHostMongo(host) {
   return host.trim().toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");

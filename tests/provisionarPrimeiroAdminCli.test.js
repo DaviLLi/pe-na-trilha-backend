@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 const cwd = fileURLToPath(new URL("../", import.meta.url));
 function executar(args) {
   return spawnSync(process.execPath, ["tools/provisionar-primeiro-admin.js", ...args], {
-    cwd, env: { ...process.env, NODE_ENV: "development" }, encoding: "utf8", timeout: 5000,
+    cwd, env: { ...process.env, NODE_ENV: "production", APP_ENV: "homologation" }, encoding: "utf8", timeout: 5000,
   });
 }
 

@@ -9,8 +9,7 @@ import { BANCO_HOMOLOGACAO, HOST_ATLAS_PRODUCAO, HOST_ATLAS_TESTES } from "../sr
 
 const ambienteValido = {
   TEST_ENVIRONMENT: "integration",
-  TEST_MONGO_URI: `mongodb+srv://${HOST_ATLAS_TESTES}/pe_na_trilha_integration`,
-  TEST_MONGO_ALLOWED_HOSTS: HOST_ATLAS_TESTES,
+  TEST_MONGO_URI: "mongodb://127.0.0.1/pe_na_trilha_integration",
 };
 const mediaHomologacao = {
   HOMOLOGATION_CLOUDINARY_CLOUD_NAME: "fixture-homol",
@@ -36,7 +35,6 @@ describe("validação da configuração da suíte de integração", () => {
   test("remove URIs normais antes de preparar o processo dos testes de integração", () => {
     const ambiente = {
       MONGO_URI: "mongodb://legacy/db",
-      MONGO_URI_DEVELOPMENT: "mongodb://development/db",
       MONGO_URI_PRODUCTION: "mongodb://production/db",
       MONGO_URI_HOMOLOGATION: "mongodb://homologation/db",
       CLOUDINARY_API_SECRET: "segredo-normal-ignorado",
@@ -48,7 +46,6 @@ describe("validação da configuração da suíte de integração", () => {
     prepararAmbienteAplicacao(ambiente, config);
 
     expect(ambiente).not.toHaveProperty("MONGO_URI");
-    expect(ambiente).not.toHaveProperty("MONGO_URI_DEVELOPMENT");
     expect(ambiente).not.toHaveProperty("MONGO_URI_PRODUCTION");
     expect(ambiente).not.toHaveProperty("MONGO_URI_HOMOLOGATION");
     expect(ambiente).not.toHaveProperty("CLOUDINARY_API_SECRET");
@@ -60,20 +57,12 @@ describe("validação da configuração da suíte de integração", () => {
   test("exige banco com marcador de teste", () => {
     expect(() => validarAmbienteIntegracao({
       ...ambienteValido,
-      TEST_MONGO_URI: `mongodb+srv://${HOST_ATLAS_TESTES}/pe_na_trilha`,
+      TEST_MONGO_URI: "mongodb://127.0.0.1/pe_na_trilha",
     })).toThrow("O nome do banco em TEST_MONGO_URI precisa conter um marcador de teste válido.");
   });
 
-  test("exige allowlist explícita e correspondência exata do host", () => {
-    expect(() => validarAmbienteIntegracao({
-      ...ambienteValido,
-      TEST_MONGO_ALLOWED_HOSTS: "",
-    })).toThrow("TEST_MONGO_ALLOWED_HOSTS deve conter somente hosts explícitos do Atlas de testes.");
-
-    expect(() => validarAmbienteIntegracao({
-      ...ambienteValido,
-      TEST_MONGO_ALLOWED_HOSTS: `fixture-novo.${HOST_ATLAS_TESTES.split(".").slice(1).join(".")}`,
-    })).toThrow("O host de TEST_MONGO_URI não está na allowlist.");
+  test("fixa a allowlist no loopback da fixture", () => {
+    expect(validarAmbienteIntegracao(ambienteValido).hostsPermitidos).toEqual(["127.0.0.1"]);
   });
 
   test("exige credenciais exclusivas quando o modo real é pedido", () => {
@@ -123,24 +112,18 @@ describe("validação da configuração da suíte de integração", () => {
     });
 
     expect(config.bancoBase).toBe("pe_na_trilha_integration");
-    expect(config.hostMongo).toBe(HOST_ATLAS_TESTES);
+    expect(config.hostMongo).toBe("127.0.0.1");
     expect(config.cloudinary).toBeUndefined();
   });
 
-  test("recusa produção ainda que usuário, banco e allowlist aparentem ser de testes", () => {
+  test.each([
+    `mongodb+srv://${HOST_ATLAS_PRODUCAO}/pe_na_trilha_integration`,
+    `mongodb+srv://${HOST_ATLAS_TESTES}/${BANCO_HOMOLOGACAO}`,
+    "mongodb://127.0.0.1/pe_na_trilha_integration?proxyHost=externo.example",
+  ])("recusa conexões de integração fora da fixture", (uri) => {
     expect(() => validarAmbienteIntegracao({
-      ...ambienteValido, TEST_MONGO_URI: `mongodb+srv://fixture:fixture@${HOST_ATLAS_PRODUCAO}/pe_na_trilha_integration`,
-      TEST_MONGO_ALLOWED_HOSTS: HOST_ATLAS_PRODUCAO,
-    })).toThrow("seed SRV do Atlas de testes");
-    expect(() => validarAmbienteIntegracao({
-      ...ambienteValido, TEST_MONGO_ALLOWED_HOSTS: `${HOST_ATLAS_TESTES},${HOST_ATLAS_PRODUCAO}`,
-    })).toThrow("somente hosts explícitos do Atlas de testes");
-  });
-
-  test("recusa o banco de homologação na URI de integração", () => {
-    expect(() => validarAmbienteIntegracao({
-      ...ambienteValido, TEST_MONGO_URI: `mongodb+srv://${HOST_ATLAS_TESTES}/${BANCO_HOMOLOGACAO}`,
-    })).toThrow("O nome do banco em TEST_MONGO_URI precisa conter um marcador de teste válido.");
+      ...ambienteValido, TEST_MONGO_URI: uri,
+    })).toThrow("replica set descartável em 127.0.0.1");
   });
 
   test("aceita somente o nome de banco associado ao identificador da execução", () => {

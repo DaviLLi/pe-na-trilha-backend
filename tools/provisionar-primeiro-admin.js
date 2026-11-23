@@ -1,5 +1,6 @@
 // Comando operacional local. Nunca é carregado pelo servidor HTTP.
 import { createInterface } from "node:readline/promises";
+import { obterAmbienteAplicacao } from "../src/config/ambientes.js";
 
 const mensagens = {
   CONFIRMACAO_OBRIGATORIA: "Confirmação ausente; nenhuma promoção realizada.",
@@ -12,7 +13,7 @@ const mensagens = {
 
 async function executar() {
   if (process.argv.includes("--ajuda")) {
-    console.log("Uso: NODE_ENV=development|production npm run admin:provisionar -- --banco NOME_DO_BANCO");
+    console.log("Uso: NODE_ENV=production APP_ENV=production|homologation npm run admin:provisionar -- --banco NOME_DO_BANCO");
     console.log("Solicita somente o e-mail de uma conta existente, em terminal interativo, com confirmação explícita. Não recebe senha.");
     return;
   }
@@ -23,8 +24,7 @@ async function executar() {
       throw new Error("ENTRADA");
     }
     if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error("TERMINAL");
-    if (!["development", "production"].includes(process.env.NODE_ENV)
-      || (process.env.APP_ENV && process.env.APP_ENV !== process.env.NODE_ENV)) throw new Error("AMBIENTE");
+    const ambiente = obterAmbienteAplicacao(process.env);
     await import("../src/config/carregarAmbiente.js");
     const { obterUriMongo, conectarBanco } = await import("../src/config/database.js");
     const uri = new URL(obterUriMongo());
@@ -33,9 +33,9 @@ async function executar() {
       throw new Error("BANCO");
     }
     terminal = createInterface({ input: process.stdin, output: process.stdout });
-    console.log(`Alvo: ambiente ${process.env.NODE_ENV}, banco ${args[1]}. Confira também o cluster configurado antes de continuar.`);
+    console.log(`Alvo: ambiente ${ambiente}, banco ${args[1]}. Confira também o cluster configurado antes de continuar.`);
     const email = (await terminal.question("E-mail exato dessa conta: ")).trim();
-    const frase = `PROVISIONAR ADMIN ${process.env.NODE_ENV} ${args[1]}`;
+    const frase = `PROVISIONAR ADMIN ${ambiente} ${args[1]}`;
     if ((await terminal.question(`Para confirmar, digite ${frase}: `)) !== frase) throw new Error("CONFIRMACAO");
     terminal.close(); terminal = null;
     ({ default: mongoose } = await import("mongoose"));
@@ -48,7 +48,6 @@ async function executar() {
     const locais = {
       ENTRADA: "Informe apenas --banco com o nome explícito do banco pretendido.",
       TERMINAL: "Operação exige terminal interativo; execução por pipe/CI recusada.",
-      AMBIENTE: "Defina NODE_ENV como development ou production explicitamente.",
       BANCO: "O banco configurado não corresponde ao banco confirmado; nenhuma conexão iniciada.",
       CONFIRMACAO: "Confirmação incorreta; nenhuma conexão iniciada.",
     };

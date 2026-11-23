@@ -39,6 +39,6 @@ export function validarCloudinaryHomologacao(ambiente, destinosConhecidos) {
 }
 
 export function obterCloudinaryHomologacao(ambiente, destinosAdicionais = []) {
-  const conhecidos = [".env", ".env.production", ".env.production.local"].map(lerArquivoAmbiente);
+  const conhecidos = [lerArquivoAmbiente(".env.production")];
   return validarCloudinaryHomologacao(ambiente, [...conhecidos, ...destinosAdicionais]);
 }

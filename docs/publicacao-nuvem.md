@@ -25,7 +25,7 @@ O backend Express e o frontend React/Vite foram validados localmente com Node.js
 
 - Usar um replica set Atlas compatível com transações e uma conta de aplicação com privilégios limitados à base necessária. Validar a capacidade de criar os índices `tentativas_login.expiraEm`, `trilhas.fotos.publicId` e `usuarios.fotoPerfilPublicId`. Preparar um backup e testar restauração fora de produção.
 - Restringir o acesso de rede ao Atlas aos destinos confirmados para a aplicação e às rotinas autorizadas. Manter as contas, URIs e dados de teste e de produção separados.
-- Usar Cloudinary independente para produção e testes. Confirmar a entrega autenticada das fotos de publicações, a entrega por meio da API e as permissões da conta. Validar a compensação com arquivos descartáveis e verificar operações pendentes e falhas. A foto de perfil mantém seu fluxo existente.
+- Usar a chave original de produção e a chave restrita à pasta `homologacao/` para homologação. Confirmar a entrega autenticada das fotos de publicações, a entrega por meio da API e as permissões da conta. Validar a compensação com arquivos descartáveis e verificar operações pendentes e falhas. A foto de perfil mantém seu fluxo existente.
 - Preencher os campos de responsabilidade, contato, finalidades e retenção hoje marcados como pendentes nos documentos legais. A aprovação do conteúdo e a decisão sobre a versão publicada cabem aos responsáveis pelo projeto.
 
 [MongoDB Atlas — lista de acesso IP](https://www.mongodb.com/docs/atlas/security/ip-access-list/) · [Cloudinary — controle de acesso à mídia](https://cloudinary.com/documentation/control_access_to_media)
